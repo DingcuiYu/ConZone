@@ -1,4 +1,13 @@
-# NVMeVirt
+# ConZone
+
+ConZone is a a zoned flash storage emulator for consumer devices. It is implemented based on NVMeVirt. ConZone integrates novel I/O paths that differs from traditional flash storage. For write path, the open zones need to share the write buffer in consumer-grade flash storage. The write buffer should be flushed each time the host change the writing zone, which only happens when the write buffer is full or the host sends fsync() requests in traditional flash storage. For read path, the mandatory sequential write requirement for the host allows zoned flash storage to
+employ a larger L2P mapping granularity. Due to the limited capacity of the L2P cache, zoned flash storage has a random read performance advantage over traditional flash storage in consumer devices. The new L2P mapping table and L2P cache management strategies are also incorporated into ConZone. For erase path, considering the use of hybrid media in mobile flash storage, ConZone employs different garbage collection mechanisms for zoned and non-zoned flash regions.
+
+You can strart ConZone quickly following the following steps.
+
+Note that the `memmap_size` should not larger than 2 GiB.
+
+# NVMeVirt Readme
 
 ## Introduction
 
