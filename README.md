@@ -5,7 +5,13 @@ employ a larger L2P mapping granularity. Due to the limited capacity of the L2P 
 
 You can strart ConZone quickly following the following steps.
 
-Note that the `memmap_size` should not larger than 2 GiB.
+Note:
+
+Since the SLC flash blocks is not exposed to the host, you need to determine the `memmap_size` by running the `storage_size` program.
+
+```
+./storage_size
+```
 
 # NVMeVirt Readme
 

@@ -156,7 +156,7 @@ int main()
     ret = myadd(storage_capacity,storage_ui,pslc_rsv,pslc_ui,&ret_ui,&ret_unit);
     ret = myadd(ret,ret_ui,nvme_rsv,n_rsv_ui,&ret_ui,&ret_unit);
 
-    printf("The command should be:\n");
-    printf("sudo insmod ./nvmev.ko memmap_start=80G memmap_size=%lld%c cpus=7,8\n",ret,ret_unit);
+    printf("The memmap_size should be:\n");
+    printf("%lld%c\n",ret,ret_unit);
     return 0;
 }
