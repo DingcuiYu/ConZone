@@ -9,9 +9,35 @@ Note:
 
 Since the SLC flash blocks is not exposed to the host, you need to determine the `memmap_size` by running the `storage_size` program.
 
-```
+```shell
 ./storage_size
 ```
+
+After entering some information as prompted, you will get an output similar to the following:
+```shell
+Please enter the block size(Unit: K,M,G):
+3072K
+Please enter the number of dies per superblock:
+4
+Please enter the number of pslc blks:
+4
+Please enter the storage size(Unit: K,M,G):
+4G
+blksz 3,blksz_aligned 4, zonesz 16, sblksz 12, lcm 48 (M)
+new storage sz 4128M (ui 1)
+The number of rsv pslc blks should be :
+90
+The size of L2P cache shoule be:
+KB(33)
+The reserved space is:
+1080M
+The memmap_size should be:
+5209M
+```
+
+Then, you have to change the `pSLC_INIT_BLKS` variable in `ssd_config.h` to `The number of rsv pslc blks`, and correspondingly change the `memmap_size` in the `insmod xxx` command.
+
+If you want to scale the L2P cache equally, you can also change the `L2P_CACHE_SIZE` in `ssd_config.h` to `The size of L2P cache`.
 
 # NVMeVirt Readme
 

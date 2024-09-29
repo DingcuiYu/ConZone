@@ -265,7 +265,7 @@ static void __init_zms(struct zns_ftl *zns_ftl,struct znsparams *zpp,struct ssd 
 	zns_ftl->last_nlb = 0;
 	zns_ftl->tt_lpns = (zpp->zone_size*zpp->nr_zones)/ssd->sp.pgsz;
 
-	zns_ftl->maptbl = kmalloc(sizeof(struct ppa)*(ssd->sp.tt_pgs), GFP_KERNEL);
+	zns_ftl->maptbl = vmalloc(sizeof(struct ppa)*(ssd->sp.tt_pgs));
 	for (i = 0; i < ssd->sp.tt_pgs; i++) {
 		zns_ftl->maptbl[i].ppa = UNMAPPED_PPA;
 	}
@@ -306,7 +306,7 @@ static void __init_zms(struct zns_ftl *zns_ftl,struct znsparams *zpp,struct ssd 
 	zns_ftl->uspace_reduction = USER_SPACE_REDUCTION;
 	NVMEV_ASSERT(zns_ftl->pslc_blks<zns_ftl->ssd->sp.blks_per_pl);
 
-	zns_ftl->rmap = kmalloc(sizeof(struct ppa)*(ssd->sp.tt_pgs), GFP_KERNEL);
+	zns_ftl->rmap = vmalloc(sizeof(struct ppa)*(ssd->sp.tt_pgs));
 	for (i = 0; i < ssd->sp.tt_pgs; i++) {
 		zns_ftl->rmap[i] = INVALID_LPN;
 	}
@@ -407,8 +407,8 @@ void zns_remove_namespace(struct nvmev_ns *ns)
 	//#if(BASE_SSD == ZMS_PROTOTYPE)
 	zms_remove_lines(zns_ftl,false);
 	zms_remove_lines(zns_ftl,true);
-	kfree(zns_ftl->maptbl);
-	kfree(zns_ftl->rmap);
+	vfree(zns_ftl->maptbl);
+	vfree(zns_ftl->rmap);
 	for(int i = 0;i < zns_ftl->l2pcache.num_slots;i++)
 	{
 		kfree(zns_ftl->l2pcache.mapping[i]);
