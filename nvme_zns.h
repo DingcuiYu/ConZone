@@ -58,10 +58,7 @@ enum {
 	ZRWACAP_EXPFLUSHSUP = (1 << 0),
 };
 
-enum {
-	ZONE_TYPE_CONVENTIONAL = 0x1 ,
-	ZONE_TYPE_SEQ_WRITE_REQUIRED = 0x2 ,
-};
+enum { ZONE_TYPE_SEQ_WRITE_REQUIRED = 0x2 };
 
 enum zone_state {
 	ZONE_STATE_EMPTY = 0x1,

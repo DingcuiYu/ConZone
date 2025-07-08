@@ -105,14 +105,14 @@ static uint32_t __zmgmt_send_open_zone(struct zns_ftl *zns_ftl, uint64_t zid, ui
 	return status;
 }
 
-static void __reset_zone(struct zns_ftl *zns_ftl, uint64_t zid)
+static void __reset_zone(struct zns_ftl *zns_ftl, uint64_t zid, int sqid)
 {
 	struct zone_descriptor *zone_descs = zns_ftl->zone_descs;
 	uint32_t zone_size = zns_ftl->zp.zone_size;
 	uint8_t *zone_start_addr = (uint8_t *)get_storage_addr_from_zid(zns_ftl, zid);
 
-	NVMEV_ZNS_DEBUG("%s zid %llu start addres 0x%llx zone_size %x \n", __func__,
-			zid, (uint64_t)zone_start_addr, zone_size);
+	NVMEV_ZNS_DEBUG("%s zid %llu start addres 0x%llx zone_size %x \n", __func__, zid,
+					(uint64_t)zone_start_addr, zone_size);
 
 	memset(zone_start_addr, 0, zone_size);
 
@@ -121,12 +121,16 @@ static void __reset_zone(struct zns_ftl *zns_ftl, uint64_t zid)
 
 	if (zns_ftl->zp.zrwa_buffer_size)
 		buffer_refill(&zns_ftl->zrwa_buffer[zid]);
-	
-	NVMEV_ZMS_DEBUG("%s zid %llu\n",__func__,zid);
-	zms_reset_zone(zns_ftl,zid);
+
+#if (BASE_SSD == ZMS_PROTOTYPE)
+	if (zns_ftl->zp.ns_type == SSD_TYPE_ZMS_ZONED) {
+		NVMEV_ZMS_DEBUG("%s zid %llu\n", __func__, zid);
+		zone_reset((struct zms_ftl *)(&(*zns_ftl)), zid, sqid);
+	}
+#endif
 }
 
-static uint32_t __zmgmt_send_reset_zone(struct zns_ftl *zns_ftl, uint64_t zid)
+static uint32_t __zmgmt_send_reset_zone(struct zns_ftl *zns_ftl, uint64_t zid, int sqid)
 {
 	struct zone_descriptor *zone_descs = zns_ftl->zone_descs;
 	enum zone_state cur_state = zone_descs[zid].state;
@@ -147,7 +151,7 @@ static uint32_t __zmgmt_send_reset_zone(struct zns_ftl *zns_ftl, uint64_t zid)
 	case ZONE_STATE_FULL:
 	case ZONE_STATE_EMPTY:
 		change_zone_state(zns_ftl, zid, ZONE_STATE_EMPTY);
-		__reset_zone(zns_ftl, zid);
+		__reset_zone(zns_ftl, zid, sqid);
 		break;
 
 	default:
@@ -190,13 +194,12 @@ static uint32_t __zmgmt_send_flush_explicit_zrwa(struct zns_ftl *zns_ftl, uint64
 	const uint32_t lbas_per_zrwa = zns_ftl->zp.lbas_per_zrwa;
 
 	uint64_t zrwa_start = wp;
-	uint64_t zrwa_end = min(zrwa_start + lbas_per_zrwa - 1,
-				(size_t)zone_to_slba(zns_ftl, zid) + zone_capacity - 1);
+	uint64_t zrwa_end =
+		min(zrwa_start + lbas_per_zrwa - 1, (size_t)zone_to_slba(zns_ftl, zid) + zone_capacity - 1);
 	uint64_t nr_lbas_flush = slba - wp + 1;
 
-	NVMEV_ZNS_DEBUG(
-		"%s slba 0x%llx zrwa_start 0x%llx zrwa_end 0x%llx zone_descs[zid].zrwav %d\n",
-		__func__, slba, zrwa_start, zrwa_end, zone_descs[zid].zrwav);
+	NVMEV_ZNS_DEBUG("%s slba 0x%llx zrwa_start 0x%llx zrwa_end 0x%llx zone_descs[zid].zrwav %d\n",
+					__func__, slba, zrwa_start, zrwa_end, zone_descs[zid].zrwav);
 
 	if (zone_descs[zid].zrwav == 0)
 		return NVME_SC_ZNS_INVALID_ZONE_OPERATION;
@@ -214,7 +217,7 @@ static uint32_t __zmgmt_send_flush_explicit_zrwa(struct zns_ftl *zns_ftl, uint64
 		zone_descs[zid].wp = slba + 1;
 
 		if (zone_descs[zid].wp == (zone_to_slba(zns_ftl, zid) + zone_capacity)) {
-			//change state to ZSF
+			// change state to ZSF
 			if (cur_state != ZONE_STATE_CLOSED)
 				release_zone_resource(zns_ftl, OPEN_ZONE);
 			release_zone_resource(zns_ftl, ACTIVE_ZONE);
@@ -231,7 +234,7 @@ static uint32_t __zmgmt_send_flush_explicit_zrwa(struct zns_ftl *zns_ftl, uint64
 }
 
 static uint32_t __zmgmt_send(struct zns_ftl *zns_ftl, uint64_t slba, uint32_t action,
-			     uint32_t option)
+							 uint32_t option, int sqid)
 {
 	uint32_t status;
 	uint64_t zid = lba_to_zone(zns_ftl, slba);
@@ -247,7 +250,7 @@ static uint32_t __zmgmt_send(struct zns_ftl *zns_ftl, uint64_t slba, uint32_t ac
 		status = __zmgmt_send_open_zone(zns_ftl, zid, option);
 		break;
 	case ZSA_RESET_ZONE:
-		status = __zmgmt_send_reset_zone(zns_ftl, zid);
+		status = __zmgmt_send_reset_zone(zns_ftl, zid, sqid);
 		break;
 	case ZSA_OFFLINE_ZONE:
 		status = __zmgmt_send_offline_zone(zns_ftl, zid);
@@ -274,13 +277,13 @@ void zns_zmgmt_send(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev
 
 	if (select_all) {
 		for (zid = 0; zid < zns_ftl->zp.nr_zones; zid++)
-			__zmgmt_send(zns_ftl, zone_to_slba(zns_ftl, zid), action, option);
+			__zmgmt_send(zns_ftl, zone_to_slba(zns_ftl, zid), action, option, req->sq_id);
 	} else {
-		status = __zmgmt_send(zns_ftl, slba, action, option);
+		status = __zmgmt_send(zns_ftl, slba, action, option, req->sq_id);
 	}
 
-	NVMEV_ZNS_DEBUG("%s slba %llx zid %llu select_all %u action %u status %u option %u\n",
-			__func__, cmd->slba, zid, select_all, cmd->zsa, status, option);
+	NVMEV_ZNS_DEBUG("%s slba %llx zid %llu select_all %u action %u status %u option %u\n", __func__,
+					cmd->slba, zid, select_all, cmd->zsa, status, option);
 
 	ret->nsecs_target = req->nsecs_start; // no delay
 	ret->status = status;

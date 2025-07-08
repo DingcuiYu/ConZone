@@ -16,9 +16,7 @@ static int apicid_to_cpuid[256];
 static void __init_apicid_to_cpuid(void)
 {
 	int i;
-	for_each_possible_cpu(i) {
-		apicid_to_cpuid[per_cpu(x86_cpu_to_apicid, i)] = i;
-	}
+	for_each_possible_cpu(i) { apicid_to_cpuid[per_cpu(x86_cpu_to_apicid, i)] = i; }
 }
 
 static void __signal_irq(const char *type, unsigned int irq)
@@ -29,7 +27,8 @@ static void __signal_irq(const char *type, unsigned int irq)
 	unsigned int target = irqc->dest_apicid;
 	unsigned int target_cpu = apicid_to_cpuid[target];
 
-	NVMEV_DEBUG_VERBOSE("irq: %s %d, vector %d, apic %d, cpu %d\n", type, irq, irqc->vector, target, target_cpu);
+	NVMEV_DEBUG_VERBOSE("irq: %s %d, vector %d, apic %d, cpu %d\n", type, irq, irqc->vector, target,
+						target_cpu);
 	apic->send_IPI(target_cpu, irqc->vector);
 
 	return;
@@ -61,7 +60,8 @@ static void __process_msi_irq(int msi_index)
 {
 	struct msi_desc *msi_desc, *tmp;
 
-	for_each_msi_entry_safe(msi_desc, tmp, (&nvmev_vdev->pdev->dev)) {
+	for_each_msi_entry_safe(msi_desc, tmp, (&nvmev_vdev->pdev->dev))
+	{
 		if (msi_desc->msi_attrib.entry_nr == msi_index) {
 			__signal_irq("msi", msi_desc->irq);
 			return;
@@ -187,8 +187,7 @@ bool nvmev_proc_bars(void)
 		BUG_ON(!queue->nvme_sq && "Error on setup admin submission queue");
 
 		for (i = 0; i < num_pages; i++) {
-			queue->nvme_sq[i] =
-				page_address(pfn_to_page(nvmev_vdev->bar->u_asq >> PAGE_SHIFT) + i);
+			queue->nvme_sq[i] = page_address(pfn_to_page(nvmev_vdev->bar->u_asq >> PAGE_SHIFT) + i);
 		}
 
 		nvmev_vdev->dbs[0] = nvmev_vdev->old_dbs[0] = 0;
@@ -212,15 +211,13 @@ bool nvmev_proc_bars(void)
 
 		queue->cq_depth = bar->aqa.acqs + 1; /* asqs and acqs are 0-based */
 
-		num_pages =
-			DIV_ROUND_UP(queue->cq_depth * sizeof(struct nvme_completion), PAGE_SIZE);
+		num_pages = DIV_ROUND_UP(queue->cq_depth * sizeof(struct nvme_completion), PAGE_SIZE);
 		queue->nvme_cq = kcalloc(num_pages, sizeof(struct nvme_completion *), GFP_KERNEL);
 		BUG_ON(!queue->nvme_cq && "Error on setup admin completion queue");
 		queue->cq_head = 0;
 
 		for (i = 0; i < num_pages; i++) {
-			queue->nvme_cq[i] =
-				page_address(pfn_to_page(nvmev_vdev->bar->u_acq >> PAGE_SHIFT) + i);
+			queue->nvme_cq[i] = page_address(pfn_to_page(nvmev_vdev->bar->u_acq >> PAGE_SHIFT) + i);
 		}
 
 		nvmev_vdev->dbs[1] = nvmev_vdev->old_dbs[1] = 0;
@@ -229,7 +226,7 @@ bool nvmev_proc_bars(void)
 	}
 	if (old_bar->cc != bar->u_cc) {
 		NVMEV_DEBUG("%s: cc 0x%x:%x -> 0x%x:%x\n", __func__, old_bar->cc, old_bar->csts, bar->u_cc,
-			    bar->u_csts);
+					bar->u_csts);
 		/* Enable */
 		if (bar->cc.en == 1) {
 			if (nvmev_vdev->admin_q) {
@@ -312,7 +309,7 @@ static int nvmev_pci_write(struct pci_bus *bus, unsigned int devfn, int where, i
 		target -= OFFS_PCI_MSIX_CAP;
 		if (target == PCI_MSIX_FLAGS) {
 			mask = PCI_MSIX_FLAGS_MASKALL | /* 0x4000 */
-			       PCI_MSIX_FLAGS_ENABLE; /* 0x8000 */
+				   PCI_MSIX_FLAGS_ENABLE;	/* 0x8000 */
 
 			if ((nvmev_vdev->pdev) && ((val ^ _val) & PCI_MSIX_FLAGS_ENABLE)) {
 				nvmev_vdev->pdev->msix_enabled = !!(_val & PCI_MSIX_FLAGS_ENABLE);
@@ -325,8 +322,8 @@ static int nvmev_pci_write(struct pci_bus *bus, unsigned int devfn, int where, i
 	} else {
 		// PCI_EXT_CAP
 	}
-	NVMEV_DEBUG_VERBOSE("[W] 0x%x, mask: 0x%x, val: 0x%x -> 0x%x, size: %d, new: 0x%x\n", where, mask,
-		    val, _val, size, (val & (~mask)) | (_val & mask));
+	NVMEV_DEBUG_VERBOSE("[W] 0x%x, mask: 0x%x, val: 0x%x -> 0x%x, size: %d, new: 0x%x\n", where,
+						mask, val, _val, size, (val & (~mask)) | (_val & mask));
 
 	val = (val & (~mask)) | (_val & mask);
 	memcpy(nvmev_vdev->virtDev + where, &val, size);
@@ -343,7 +340,6 @@ static struct pci_sysdata nvmev_pci_sysdata = {
 	.domain = NVMEV_PCI_DOMAIN_NUM,
 	.node = 0,
 };
-
 
 static void __dump_pci_dev(struct pci_dev *dev)
 {
@@ -369,19 +365,26 @@ static void __init_nvme_ctrl_regs(struct pci_dev *dev)
 
 	nvmev_vdev->dbs = ((void *)bar) + PAGE_SIZE;
 
-	*bar = (struct nvme_ctrl_regs) {
-		.cap = {
-			.to = 1,
-			.mpsmin = 0,
-			.mqes = 1024 - 1, // 0-based value
-#if (SUPPORTED_SSD_TYPE(ZNS))
-			.css = CAP_CSS_BIT_SPECIFIC,
+	*bar = (struct nvme_ctrl_regs){
+		.cap =
+			{
+				.to = 1,
+				.mpsmin = 0,
+#if (SUPPORTED_SSD_TYPE(ZMS_ZONED))
+				.mqes = MQES, // 1024 - 1, // 0-based value
+#else
+				.mqes = 1024 - 1, // 0-based value
 #endif
-		},
-		.vs = {
-			.mjr = 1,
-			.mnr = 0,
-		},
+
+#if (SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(ZMS_ZONED))
+				.css = CAP_CSS_BIT_SPECIFIC,
+#endif
+			},
+		.vs =
+			{
+				.mjr = 1,
+				.mnr = 0,
+			},
 	};
 }
 
@@ -400,7 +403,8 @@ static struct pci_bus *__create_pci_bus(void)
 	}
 
 	/* XXX Only support a singe NVMeVirt instance in the system for now */
-	list_for_each_entry(dev, &bus->devices, bus_list) {
+	list_for_each_entry(dev, &bus->devices, bus_list)
+	{
 		struct resource *res = &dev->resource[0];
 		res->parent = &iomem_resource;
 
@@ -418,9 +422,8 @@ static struct pci_bus *__create_pci_bus(void)
 		BUG_ON(!nvmev_vdev->old_bar && "allocating old BAR memory");
 		memcpy(nvmev_vdev->old_bar, nvmev_vdev->bar, sizeof(*nvmev_vdev->old_bar));
 
-		nvmev_vdev->msix_table =
-			memremap(pci_resource_start(nvmev_vdev->pdev, 0) + PAGE_SIZE * 2,
-				 NR_MAX_IO_QUEUE * PCI_MSIX_ENTRY_SIZE, MEMREMAP_WT);
+		nvmev_vdev->msix_table = memremap(pci_resource_start(nvmev_vdev->pdev, 0) + PAGE_SIZE * 2,
+										  NR_MAX_IO_QUEUE * PCI_MSIX_ENTRY_SIZE, MEMREMAP_WT);
 		memset(nvmev_vdev->msix_table, 0x00, NR_MAX_IO_QUEUE * PCI_MSIX_ENTRY_SIZE);
 	}
 
@@ -592,7 +595,7 @@ static void PCI_EXTCAP_SETTINGS(struct pci_ext_cap *ext_cap)
 	ext_cap = ext_cap_base + 0x1a0;
 	ext_cap->cid = PCI_EXT_CAP_ID_SECPCI;
 	ext_cap->cver = 1;
-	ext_cap->next = 0; 
+	ext_cap->next = 0;
 
 	/*
 	*(ext_cap + 1) = (struct pci_ext_cap) {

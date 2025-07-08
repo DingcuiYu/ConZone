@@ -32,27 +32,29 @@
 /*************************/
 #define NVMEV_DRV_NAME "NVMeVirt"
 #define NVMEV_VERSION 0x0110
-#define NVMEV_DEVICE_ID	NVMEV_VERSION
+#define NVMEV_DEVICE_ID NVMEV_VERSION
 #define NVMEV_VENDOR_ID 0x0c51
-#define NVMEV_SUBSYSTEM_ID	0x370d
+#define NVMEV_SUBSYSTEM_ID 0x370d
 #define NVMEV_SUBSYSTEM_VENDOR_ID NVMEV_VENDOR_ID
 
 #define NVMEV_INFO(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ERROR(string, args...) printk(KERN_ERR "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_ERROR(string, args...) printk(KERN_ERR "%s: [ERROR]" string, NVMEV_DRV_NAME, ##args)
 #define NVMEV_ASSERT(x) BUG_ON((!(x)))
 
+#define NVMEV_ZMS_PRINT_TIME(string,                                                               \
+							 args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+
 #ifdef CONFIG_NVMEV_DEBUG
-#define  NVMEV_DEBUG(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_DEBUG(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 #ifdef CONFIG_NVMEV_DEBUG_VERBOSE
-#define  NVMEV_DEBUG_VERBOSE(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_DEBUG_VERBOSE(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 #else
-#define  NVMEV_DEBUG_VERBOSE(string, args...)
+#define NVMEV_DEBUG_VERBOSE(string, args...)
 #endif
 #else
 #define NVMEV_DEBUG(string, args...)
 #define NVMEV_DEBUG_VERBOSE(string, args...)
 #endif
-
 
 #define NR_MAX_IO_QUEUE 72
 #define NR_MAX_PARALLEL_IO 16384
@@ -146,10 +148,10 @@ struct nvmev_admin_queue {
 
 struct nvmev_config {
 	unsigned long memmap_start; // byte
-	unsigned long memmap_size; // byte
+	unsigned long memmap_size;	// byte
 
-	unsigned long storage_start; //byte
-	unsigned long storage_size; // byte
+	unsigned long storage_start; // byte
+	unsigned long storage_size;	 // byte
 
 	unsigned int cpu_nr_dispatcher;
 	unsigned int nr_io_workers;
@@ -159,11 +161,11 @@ struct nvmev_config {
 	unsigned int nr_io_units;
 	unsigned int io_unit_shift; // 2^
 
-	unsigned int read_delay; // ns
-	unsigned int read_time; // ns
-	unsigned int read_trailing; // ns
-	unsigned int write_delay; // ns
-	unsigned int write_time; // ns
+	unsigned int read_delay;	 // ns
+	unsigned int read_time;		 // ns
+	unsigned int read_trailing;	 // ns
+	unsigned int write_delay;	 // ns
+	unsigned int write_time;	 // ns
 	unsigned int write_trailing; // ns
 };
 
@@ -199,10 +201,10 @@ struct nvmev_io_work {
 struct nvmev_io_worker {
 	struct nvmev_io_work *work_queue;
 
-	unsigned int free_seq; /* free io req head index */
+	unsigned int free_seq;	   /* free io req head index */
 	unsigned int free_seq_end; /* free io req tail index */
-	unsigned int io_seq; /* io req head index */
-	unsigned int io_seq_end; /* io req tail index */
+	unsigned int io_seq;	   /* io req head index */
+	unsigned int io_seq_end;   /* io req tail index */
 
 	unsigned long long latest_nsecs;
 
@@ -280,17 +282,15 @@ struct nvmev_ns {
 
 	/*conv ftl or zns or kv*/
 	uint32_t nr_parts; // partitions
-	void *ftls; // ftl instances. one ftl per partition
+	void *ftls;		   // ftl instances. one ftl per partition
 
 	/*io command handler*/
-	bool (*proc_io_cmd)(struct nvmev_ns *ns, struct nvmev_request *req,
-			    struct nvmev_result *ret);
+	bool (*proc_io_cmd)(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
 
 	/*specific CSS io command identifier*/
 	bool (*identify_io_cmd)(struct nvmev_ns *ns, struct nvme_command cmd);
 	/*specific CSS io command processor*/
-	unsigned int (*perform_io_cmd)(struct nvmev_ns *ns, struct nvme_command *cmd,
-				       uint32_t *status);
+	unsigned int (*perform_io_cmd)(struct nvmev_ns *ns, struct nvme_command *cmd, uint32_t *status);
 };
 
 // VDEV Init, Final Function
@@ -310,7 +310,7 @@ void nvmev_proc_admin_cq(int new_db, int old_db);
 // OPS I/O QUEUE
 struct buffer;
 void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
-				struct buffer *write_buffer, size_t buffs_to_release);
+								 struct buffer *write_buffer, size_t buffs_to_release);
 void NVMEV_IO_WORKER_INIT(struct nvmev_dev *nvmev_vdev);
 void NVMEV_IO_WORKER_FINAL(struct nvmev_dev *nvmev_vdev);
 int nvmev_proc_io_sq(int qid, int new_db, int old_db);

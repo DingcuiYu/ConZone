@@ -1,84 +1,34 @@
 # ConZone
 
-ConZone is a a zoned flash storage emulator for consumer devices. It is implemented based on NVMeVirt. ConZone integrates novel I/O paths that differs from traditional flash storage. For write path, the open zones need to share the write buffer in consumer-grade flash storage. The write buffer should be flushed each time the host change the writing zone, which only happens when the write buffer is full or the host sends fsync() requests in traditional flash storage. For read path, the mandatory sequential write requirement for the host allows zoned flash storage to
-employ a larger L2P mapping granularity. Due to the limited capacity of the L2P cache, zoned flash storage has a random read performance advantage over traditional flash storage in consumer devices. The new L2P mapping table and L2P cache management strategies are also incorporated into ConZone. For erase path, considering the use of hybrid media in mobile flash storage, ConZone employs different garbage collection mechanisms for zoned and non-zoned flash regions.
-
-You can strart ConZone quickly following the following steps.
-
-Note:
-
-Since the SLC flash blocks is not exposed to the host, you need to determine the `memmap_size` by running the `storage_size` program.
-
-```shell
-./storage_size
-```
-
-After entering some information as prompted, you will get an output similar to the following:
-```shell
-Please enter the block size(Unit: K,M,G):
-3072K
-Please enter the number of dies per superblock:
-4
-Please enter the number of pslc blks:
-4
-Please enter the storage size(Unit: K,M,G):
-4G
-blksz 3,blksz_aligned 4, zonesz 16, sblksz 12, lcm 48 (M)
-new storage sz 4128M (ui 1)
-The number of rsv pslc blks should be :
-90
-The size of L2P cache shoule be:
-KB(33)
-The reserved space is:
-1080M
-The memmap_size should be:
-5209M
-```
-
-Then, you have to change the `pSLC_INIT_BLKS` variable in `ssd_config.h` to `The number of rsv pslc blks`, and correspondingly change the `memmap_size` in the `insmod xxx` command.
-
-If you want to scale the L2P cache equally, you can also change the `L2P_CACHE_SIZE` in `ssd_config.h` to `The size of L2P cache`.
-
-# NVMeVirt Readme
-
 ## Introduction
 
-NVMeVirt is a versatile software-defined virtual NVMe device. It is implemented as a Linux kernel module providing the system with a virtual NVMe device of various kinds. Currently, NVMeVirt supports conventional SSDs, NVM SSDs, ZNS SSDs, etc. The device is emulated at the PCI layer, presenting a native NVMe device to the entire system. Thus, NVMeVirt has the capability not only to function as a standard storage device, but also to be utilized in advanced storage configurations, such as NVMe-oF target offloading, kernel bypassing, and PCI peer-to-peer communication.
+ConZone is a versatile software-defined consumer-level virtual zoned device. It is developed based on [NVMeVirt](https://github.com/snu-csl/nvmevirt), which is implemented as a Linux kernel module.
 
-Further details on the design and implementation of NVMeVirt can be found in the following papers.
-- [NVMeVirt: A Versatile Software-defined Virtual NVMe Device (FAST 2023)](https://www.usenix.org/conference/fast23/presentation/kim-sang-hoon)
-- [Empowering Storage Systems Research with NVMeVirt: A Comprehensive NVMe Device Emulator (Transactions on Storage 2023)](https://dl.acm.org/doi/full/10.1145/3625006)
+Further details on the design and implementation of ConZone can be found in the following papers.
 
-Please feel free to contact us at [nvmevirt@gmail.com](mailto:nvmevirt@gmail.com) if you have any questions or suggestions. Also you can raise an issue anytime for bug reports or discussions.
+Please feel free to contact us at [xxx@gamil.com] if you have any questions or suggestions.
 
-We encourage you to cite our paper at FAST 2023 as follows:
-```
-@InProceedings{NVMeVirt:FAST23,
-  author = {Sang-Hoon Kim and Jaehoon Shim and Euidong Lee and Seongyeop Jeong and Ilkueon Kang and Jin-Soo Kim},
-  title = {{NVMeVirt}: A Versatile Software-defined Virtual {NVMe} Device},
-  booktitle = {Proceedings of the 21st USENIX Conference on File and Storage Technologies (USENIX FAST)},
-  address = {Santa Clara, CA},
-  month = {February},
-  year = {2023},
-}
-```
-
-
-## Installation
+## ConZone Installation
 
 ### Linux kernel requirement
 
-The recommended Linux kernel version is v5.15.x and higher (tested on Linux vanilla kernel v5.15.37 and Ubuntu kernel v5.15.0-58-generic).
+The recommended Linux kernel version is v5.15.x and higher (tested on Ubuntu kernel 6.8.0-45-generic).
 
 ### Reserving physical memory
 
 A part of the main memory should be reserved for the storage of the emulated NVMe device. To reserve a chunk of physical memory, add the following option to `GRUB_CMDLINE_LINUX` in `/etc/default/grub` as follows:
 
 ```bash
-GRUB_CMDLINE_LINUX="memmap=64G\\\$128G"
+GRUB_CMDLINE_LINUX="memmap=12G\\\$80G"
 ```
 
-This example will reserve 64GiB of physical memory chunk (out of the total 192GiB physical memory) starting from the 128GiB memory offset. You may need to adjust those values depending on the available physical memory size and the desired storage capacity.
+This example will reserve 12GiB of physical memory chunk (out of the total 93GiB physical memory) starting from the 80GiB memory offset. You may need to adjust those values depending on the available physical memory size and the desired storage capacity. The available continuous memory can be checked by running `sudo cat /proc/iomem`.
+
+Additionally, it is highly recommended to use the `isolcpus` Linux command-line configuration to avoid schedulers putting tasks on the CPUs that NVMeVirt uses:
+
+```bash
+GRUB_CMDLINE_LINUX="memmap=12G\\\$80G isolcpus=7,8"
+```
 
 After changing the `/etc/default/grub` file, you are required to run the following commands to update `grub` and reboot your system.
 
@@ -87,51 +37,55 @@ $ sudo update-grub
 $ sudo reboot
 ```
 
-### Compiling `nvmevirt`
+### Compiling `conzone`
 
-Please download the latest version of `nvmevirt` from Github:
+Please download the latest version of `conzone` from Github:
 
 ```bash
-$ git clone https://github.com/snu-csl/nvmevirt
+$ git clone https://github.com/xxx
 ```
 
-`nvmevirt` is implemented as a Linux kernel module. Thus, the kernel headers should be installed in the `/lib/modules/$(shell uname -r)` directory to compile `nvmevirt`.
+Since `conzone` is based on `nvmevirt`, which is implemented as a Linux kernel module. Thus, the kernel headers should be installed in the `/lib/modules/$(shell uname -r)` directory to compile `conzone`.
 
-Currently, you need to select the target device type by manually editing the `Kbuild`. You may find the following lines in the `Kbuild`, which imply that NVMeVirt is currently configured for emulating NVM(Non-Volatile Memory) SSD (such as Intel Optane SSD). You may uncomment other one to change the target device type. Note that you can select one device type at a time.
+Currently, we add a new target device type named `ZMS` to distinguish with enterprise-level zoned device `ZNS`. The corresponding compilation options have been modified.
 
-```Makefile
-# Select one of the targets to build
-CONFIG_NVMEVIRT_NVM := y
-#CONFIG_NVMEVIRT_SSD := y
-#CONFIG_NVMEVIRT_ZNS := y
-#CONFIG_NVMEVIRT_KV := y
-```
+You may find the detailed configuration parameters for current `conzone` from `ssd_config.h` in the parameters of `ZMS_PROTOTYPE`.
 
-You may find the detailed configuration parameters for conventional SSD and ZNS SSD from `ssd_config.h`.
-
-Build the kernel module by running the `make` command in the `nvmevirt` source directory.
+Build the kernel module by running the `make` command in the `conzone` source directory. You can accelerate compilation by using `-j` option.
 ```bash
-$ make
-make -C /lib/modules/5.15.37/build M=/path/to/nvmev modules
-make[1]: Entering directory '/path/to/linux-5.15.37'
+$ make -j `nproc`
+make -C /lib/modules/6.8.0-45-generic/build M=/path/to/nvmev modules
+make[1]: Entering directory '/usr/src/linux-headers-6.8.0-45-generic'
   CC [M]  /path/to/nvmev/main.o
   CC [M]  /path/to/nvmev/pci.o
   CC [M]  /path/to/nvmev/admin.o
   CC [M]  /path/to/nvmev/io.o
-  CC [M]  /path/to/nvmev/dma.o
+  CC [M]  /path/to/nvmev/ssd.o
+  CC [M]  /path/to/nvmev/zns_ftl.o
+  CC [M]  /path/to/nvmev/zns_read_write.o
+  CC [M]  /path/to/nvmev/zms_read_write.o
+  CC [M]  /path/to/nvmev/zns_mgmt_send.o
+  CC [M]  /path/to/nvmev/zns_mgmt_recv.o
+  CC [M]  /path/to/nvmev/channel_model.o
+  CC [M]  /path/to/nvmev/conv_ftl.o
   CC [M]  /path/to/nvmev/simple_ftl.o
+  CC [M]  /path/to/nvmev/pqueue/pqueue.o
   LD [M]  /path/to/nvmev/nvmev.o
   MODPOST /path/to/nvmev/Module.symvers
   CC [M]  /path/to/nvmev/nvmev.mod.o
   LD [M]  /path/to/nvmev/nvmev.ko
   BTF [M] /path/to/nvmev/nvmev.ko
-make[1]: Leaving directory '/path/to/linux-5.15.37'
+Skipping BTF generation for /path/to/nvmev/nvmev.ko due to unavailability of vmlinux
+make[1]: Leaving directory '/usr/src/linux-headers-6.8.0-45-generic'
 $
 ```
 
-### Using `nvmevirt`
+### Using `conzone`
 
-`nvmevirt` is configured to emulate the NVM SSD by default. You can attach an emulated NVM SSD in your system by loading the `nvmevirt` kernel module as follows:
+META SPACE
+TODO!!!
+
+You can attach an emulated consumer-level zoned storage in your system by loading the kernel module as follows:
 
 ```bash
 $ sudo insmod ./nvmev.ko \

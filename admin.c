@@ -203,7 +203,7 @@ static void __nvmev_admin_get_log_page(int eid)
 				// [nvme_admin_keep_alive] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
 			},
 			.iocs = {
-#if SUPPORTED_SSD_TYPE(ZNS)
+#if (SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(ZMS_ZONED))
 				/*
 				 * Zone Append is unsupported at the moment, but we fake it so that
 				 * Linux device driver doesn't lock it to R/O.
@@ -348,7 +348,7 @@ static void __nvmev_admin_identify_zns_namespace(int eid)
 	struct zns_ftl *zns_ftl = (struct zns_ftl *)nvmev_vdev->ns[nsid].ftls;
 	struct znsparams *zpp = &zns_ftl->zp;
 
-	if (NS_SSD_TYPE(nsid) != SSD_TYPE_ZNS) {
+	if (NS_SSD_TYPE(nsid) != SSD_TYPE_ZNS && NS_SSD_TYPE(nsid) != SSD_TYPE_ZMS_ZONED) {
 		__make_cq_entry(eid, NVME_SC_SUCCESS);
 		return;
 	}
@@ -410,7 +410,8 @@ static void __nvmev_admin_identify_ctrl(int eid)
 	ctrl->nn = nvmev_vdev->nr_ns;
 	ctrl->oncs = 0; //optional command
 	ctrl->acl = 3; //minimum 4 required, 0's based value
-	ctrl->vwc = 0;
+	//[MISAO] The device supports host-issued FUA or flush commands only when this variable is set to 1.
+	ctrl->vwc = 1;
 	snprintf(ctrl->sn, sizeof(ctrl->sn), "CSL_Virt_SN_%02d", 1);
 	snprintf(ctrl->mn, sizeof(ctrl->mn), "CSL_Virt_MN_%02d", 1);
 	snprintf(ctrl->fr, sizeof(ctrl->fr), "CSL_%03d", 2);
