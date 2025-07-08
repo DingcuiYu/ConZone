@@ -18,7 +18,6 @@ nvmev.mod.c
 .vscode/
 .vscode-test/
 .vscode-cpptools/
-
 log/
 .clang-format
 
