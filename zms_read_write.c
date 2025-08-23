@@ -6,7 +6,7 @@
 #include "nvmev.h"
 #include "ssd.h"
 #include "zns_ftl.h"
-
+#if (BASE_SSD == ZMS_PROTOTYPE)
 static inline bool check_resident(struct zms_ftl *zms_ftl, int gran)
 {
 	if (zms_ftl->zp.ns_type == SSD_TYPE_ZMS_ZONED && L2P_HYBRID_MAP_RESIDENT)
@@ -140,6 +140,9 @@ static int get_pages_per_granularity(struct zms_ftl *zms_ftl, int granularity)
 	case ZONE_MAP:
 		pgs = zms_ftl->zp.pgs_per_zone;
 		break;
+	case SUB_ZONE_MAP:
+		pgs = zms_ftl->zp.pslc_pgs_per_line;
+		break;
 	default:
 		NVMEV_ERROR("%s Invalid gran:%d\n", __func__, granularity);
 		// NVMEV_ASSERT(0);
@@ -158,6 +161,10 @@ static uint64_t get_granularity_start_lpn(struct zms_ftl *zms_ftl, uint64_t lpn,
 		offset = lpn - slpn;
 	}
 	int pgs = get_pages_per_granularity(zms_ftl, granularity);
+	if (pgs == 0) {
+		NVMEV_ERROR("pgs == 0? nsid %d granu %d \n", zms_ftl->zp.ns->id, granularity);
+		return lpn;
+	}
 	uint64_t au_slpn = offset / pgs * pgs + slpn;
 	return au_slpn;
 }
@@ -453,7 +460,6 @@ static int l2p_replace(struct zms_ftl *zms_ftl, uint64_t la, int gran, int res)
 {
 	int evict_idx;
 	struct l2pcache *cache = &zms_ftl->ssd->l2pcache;
-	int nsid = zms_ftl->zp.ns->id;
 	uint64_t slot = la % cache->num_slots;
 	switch (cache->evict_policy) {
 	case L2P_EVICTION_POLICY_NONE:
@@ -490,7 +496,6 @@ static int l2p_replace(struct zms_ftl *zms_ftl, uint64_t la, int gran, int res)
 		return -1;
 	}
 
-	cache->mapping[slot][evict_idx].nsid = nsid;
 	cache->mapping[slot][evict_idx].lpn = la;
 	cache->mapping[slot][evict_idx].granularity = gran;
 	cache->mapping[slot][evict_idx].resident = res;
@@ -532,11 +537,9 @@ static int l2p_insert(struct zms_ftl *zms_ftl, uint64_t la, int gran, int res)
 	uint64_t slot = la % cache->num_slots;
 	if (cache->slot_len[slot] == cache->slot_size)
 		return l2p_replace(zms_ftl, la, gran, res);
-	int nsid = zms_ftl->zp.ns->id;
 	int idx = cache->slot_len[slot];
 	int tail = cache->tail[slot];
 
-	cache->mapping[slot][idx].nsid = nsid;
 	cache->mapping[slot][idx].lpn = la;
 	cache->mapping[slot][idx].granularity = gran;
 	cache->mapping[slot][idx].resident = res;
@@ -773,12 +776,6 @@ static void get_new_wp(struct zms_ftl *zms_ftl, struct zms_write_pointer *wpp)
 		pqueue_t *victim_pq = zms_get_victim_pq(zms_ftl, wpp->loc);
 		pqueue_insert(victim_pq, wpp->curline);
 		inc_victim_cnt(zms_ftl, wpp->loc);
-	}
-
-	if (wpp == &zms_ftl->pslc_wp) {
-		zms_ftl->line_write_cnt++;
-		wpp->curline->mid.write_order = zms_ftl->line_write_cnt;
-		pqueue_insert(zms_ftl->migrating_line_pq, &wpp->curline->mid);
 	}
 
 	/* current line is used up, pick another empty line */
@@ -1062,13 +1059,16 @@ static void mark_block_free(struct zms_ftl *zms_ftl, struct ppa *ppa)
 	blk->erase_cnt++;
 }
 
-static void nextpage(struct zms_ftl *zms_ftl, struct ppa *ppa)
+static void nextpage(struct zms_ftl *zms_ftl, struct ppa *ppa, int rsv)
 {
 	struct zms_line *line = get_line(zms_ftl, ppa);
 	if (line->parent_id == -1)
 		nextpage_interleave(zms_ftl, ppa);
 	else
 		nextpage_normal(zms_ftl, ppa);
+	if (rsv && !mapped_ppa(ppa) && line->rsv_nextline != NULL) {
+		*ppa = get_first_page(zms_ftl, line->rsv_nextline);
+	}
 }
 
 static void set_map_gran(struct zms_ftl *zms_ftl, int gran, uint64_t map_slpn)
@@ -1093,6 +1093,8 @@ static int get_mapping_granularity(struct zms_ftl *zms_ftl, int loc)
 		return PAGE_MAP;
 	if (loc == LOC_NORMAL)
 		return ZONE_MAP;
+	if (ZONED_SLC && !SLC_BYPASS)
+		return SUB_ZONE_MAP;
 	return PAGE_MAP;
 }
 
@@ -1106,11 +1108,6 @@ static inline bool should_gc_high(struct zms_ftl *zms_ftl, int location)
 static inline bool should_migrate_low(struct zms_ftl *zms_ftl)
 {
 	return zms_ftl->lm.pslc_free_line_cnt <= zms_ftl->zp.migrate_thres_lines_low;
-}
-
-static inline bool should_migrate_high(struct zms_ftl *zms_ftl)
-{
-	return zms_ftl->lm.pslc_free_line_cnt <= zms_ftl->zp.migrate_thres_lines_high;
 }
 
 static struct zms_line *select_victim_line(struct zms_ftl *zms_ftl, bool force, int location)
@@ -1169,6 +1166,7 @@ static void mark_line_free(struct zms_ftl *zms_ftl, struct zms_line *line, int i
 	line->ipc = 0;
 	line->vpc = 0;
 	line->rpc = 0;
+	line->rsv_nextline = NULL;
 
 	/* move this line to free line list */
 	if (!is_active) {
@@ -1258,7 +1256,7 @@ static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int
 		return FAILURE;
 	}
 
-	nextpage(zms_ftl, &ppa);
+	nextpage(zms_ftl, &ppa, 1);
 
 	if (!mapped_ppa(&ppa)) {
 		// no free page in this line
@@ -1281,6 +1279,14 @@ static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int
 							lpn_to_zone((struct zns_ftl *)(&(*zms_ftl)), lpn), lpn, ppa.zms.ch,
 							ppa.zms.lun, ppa.zms.pl, ppa.zms.blk, ppa.zms.pg);
 	dec_line_rpc(zms_ftl, &ppa);
+
+	struct zms_line *current_line = get_line(zms_ftl, &ppa);
+	if (current_line->vpc + current_line->ipc == current_line->pgs_per_line &&
+		current_line->rpc == 0 && loc == LOC_PSLC) {
+		zms_ftl->line_write_cnt++;
+		current_line->mid.write_order = zms_ftl->line_write_cnt;
+		pqueue_insert(zms_ftl->migrating_line_pq, &current_line->mid);
+	}
 
 	int sidx = 0;
 	if (!(zms_ftl->zp.ns_type == SSD_TYPE_ZMS_ZONED)) {
@@ -1310,9 +1316,9 @@ static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int
 		if (lpn != slpn) {
 			NVMEV_ERROR("BAD RESERVED!! lpn %lld slpn %lld granularity %d\n", lpn, slpn,
 						granularity);
-			NVMEV_ASSERT(0);
+			// NVMEV_ASSERT(0);
 		}
-
+		struct zms_line *last_line = NULL;
 		for (int i = 0; i < pgs; i++) {
 			if ((loc == LOC_NORMAL && zms_ftl->device_full) ||
 				(loc == LOC_PSLC && zms_ftl->pslc_full)) {
@@ -1322,6 +1328,28 @@ static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int
 			}
 
 			ppa = get_new_page(zms_ftl, io_type, loc);
+			struct zms_line *current_line = get_line(zms_ftl, &ppa);
+
+			if (last_line && last_line != current_line && last_line->rsv_nextline == NULL) {
+				last_line->rsv_nextline = current_line;
+				// if (zms_ftl->zp.ns_type != SSD_TYPE_ZMS_META) {
+				// 	NVMEV_INFO("line [%d,%d] -next line-> [%d,%d]\n", last_line->parent_id,
+				// 			   last_line->id, current_line->parent_id, current_line->id);
+				// }
+			}
+
+			if (last_line == NULL || last_line != current_line) {
+				last_line = current_line;
+				// if (zms_ftl->zp.ns_type != SSD_TYPE_ZMS_META) {
+				// 	NVMEV_INFO("new last line [%d,%d] \n", last_line->parent_id, last_line->id);
+				// 	if (last_line->rsv_nextline) {
+				// 		NVMEV_ERROR("last line next ->[%d,%d]\n",
+				// 					last_line->rsv_nextline->parent_id,
+				// 					last_line->rsv_nextline->id);
+				// 	}
+				// }
+			}
+
 			if (!mapped_ppa(&ppa)) {
 				NVMEV_ERROR("Can not get new page. I/O type: %d loc %d lpn %lld pgs %d\n", io_type,
 							loc, lpn, pgs);
@@ -1336,6 +1364,13 @@ static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int
 										slpn + i, ppa.zms.ch, ppa.zms.lun, ppa.zms.pl, ppa.zms.blk,
 										ppa.zms.pg);
 				set_map_gran(zms_ftl, PAGE_MAP, slpn + i);
+
+				if (current_line->vpc + current_line->ipc == current_line->pgs_per_line &&
+					current_line->rpc == 0 && loc == LOC_PSLC) {
+					zms_ftl->line_write_cnt++;
+					current_line->mid.write_order = zms_ftl->line_write_cnt;
+					pqueue_insert(zms_ftl->migrating_line_pq, &current_line->mid);
+				}
 			} else {
 				zms_mark_page_reserved(zms_ftl, &ppa);
 			}
@@ -1554,12 +1589,15 @@ static uint64_t internal_write(struct zms_ftl *zms_ftl, uint64_t *write_lpns, in
 				NVMEV_ASSERT(0);
 			}
 
+			if (ZONED_SLC && io_type == MIGRATE_IO && dest_loc == LOC_PSLC) {
+				NVMEV_ERROR("shoudl not go here...\n");
+				NVMEV_ASSERT(0);
+			}
+
 			mark_page_invalid(zms_ftl, &ppa);
 			set_rmap_ent(zms_ftl, INVALID_LPN, &ppa);
 			zms_ftl->maptbl[lpn].ppa = UNMAPPED_PPA;
 
-			if (io_type == USER_IO)
-				zms_ftl->inplace_update++;
 		} else {
 			if (io_type != USER_IO) {
 				NVMEV_ERROR("Migrating unmapped lpn %lld slpn %lld elpn %lld\n", lpn,
@@ -1655,7 +1693,7 @@ static void submit_internal_write(struct zms_ftl *zms_ftl, struct zms_line *line
 				}
 			}
 		}
-		nextpage(zms_ftl, &ppa);
+		nextpage(zms_ftl, &ppa, 0);
 	}
 
 	// Gather misaligned data in SLC that does not align with QLC programming units
@@ -1786,9 +1824,8 @@ static struct zms_line *do_migrate(struct zms_ftl *zms_ftl, int io_type)
 	if (sblk_line == NULL) {
 		return NULL;
 	}
-	// NVMEV_ZMS_GC_DEBUG
-	NVMEV_INFO("get migrate line id: %d vpc: %d ipc: %d rpc :%d\n", sblk_line->id, sblk_line->vpc,
-			   sblk_line->ipc, sblk_line->rpc);
+	NVMEV_ZMS_GC_DEBUG("get migrate line id: %d vpc: %d ipc: %d rpc :%d\n", sblk_line->id,
+					   sblk_line->vpc, sblk_line->ipc, sblk_line->rpc);
 
 	// copy flashpages: pSLC -> normal or pSLC -> pSLC
 	if (zms_ftl->device_full || zms_ftl->pslc_full) {
@@ -1799,8 +1836,8 @@ static struct zms_line *do_migrate(struct zms_ftl *zms_ftl, int io_type)
 
 	submit_internal_write(zms_ftl, sblk_line, io_type);
 	erase_line(zms_ftl, sblk_line, io_type);
-	NVMEV_INFO("migrate end line id: %d  vpc: %d ipc: %d rpc:%d\n", sblk_line->id, sblk_line->vpc,
-			   sblk_line->ipc, sblk_line->rpc);
+	NVMEV_ZMS_GC_DEBUG("migrate end line id: %d  vpc: %d ipc: %d rpc:%d\n", sblk_line->id,
+					   sblk_line->vpc, sblk_line->ipc, sblk_line->rpc);
 	return sblk_line;
 }
 
@@ -2085,7 +2122,7 @@ static bool __zms_wb_hit(struct zms_ftl *zms_ftl, struct buffer *write_buffer, u
 		return false;
 	} else {
 		for (int i = 0; i < write_buffer->pgs; i++) {
-			if (write_buffer->lpns[i] == lpn && write_buffer->nsid == zms_ftl->zp.ns->id)
+			if (write_buffer->lpns[i] == lpn)
 				return true;
 		}
 		return false;
@@ -2147,6 +2184,17 @@ uint64_t buffer_flush(struct zms_ftl *zms_ftl, struct buffer *write_buffer, uint
 			for (int j = 0; j < pgs; j++) {
 				agg_lpns[agg_len] = write_buffer->lpns[i + j];
 				agg_len++;
+				ppa = get_maptbl_ent(zms_ftl, write_buffer->lpns[i + j]);
+				if (mapped_ppa(&ppa)) {
+					if (zms_ftl->zp.ns_type != SSD_TYPE_ZMS_ZONED) {
+						zms_ftl->inplace_update++;
+					} else {
+						NVMEV_ERROR("update in zoned storage?? lpn %lld loc %d ppa loc %d ppaidx "
+									"%lld\n",
+									lpn, loc, check_location_type(zms_ftl, &ppa),
+									ppa_2_pgidx(zms_ftl, &ppa));
+					}
+				}
 			}
 			uint64_t complete_time =
 				internal_write(zms_ftl, agg_lpns, 0, agg_len, USER_IO, LOC_NORMAL, nsecs_start);
@@ -2283,14 +2331,6 @@ static bool handle_write_request(struct zms_ftl *zms_ftl, struct nvmev_request *
 		else
 			zms_ftl->nopg_last_lpn = slpn;
 	}
-
-	// 好像不能让 ” Need to increase array size“ 不产生
-	// if (zms_ftl->zp.ns_type != SSD_TYPE_ZMS_META && !SLC_BYPASS && should_migrate_high(zms_ftl))
-	// { 	NVMEV_ZMS_RW_DEBUG_VERBOSE( 		"Waiting for migrating... current time %lld us max
-	// free %lld us\n", 		zms_ftl->current_time / 1000, check_maxfreetime(zms_ftl) / 1000);
-	// 	try_migrate(zms_ftl);
-	// 	return false;
-	// }
 
 	write_buffer = __zms_wb_get(zms_ftl, slpn);
 	if (!write_buffer) // wait for flushing
@@ -2444,8 +2484,12 @@ static uint64_t map_read(struct zms_ftl *zms_ftl, uint64_t lpn, uint64_t nsecs_s
 			int is_resident = check_resident(zms_ftl, MAP_GRAN(i));
 			cache_idx = l2p_insert(zms_ftl, map_slpn, MAP_GRAN(i), is_resident);
 			set_l2pcacheidx(zms_ftl, map_slpn, cache_idx);
-
-			l2p_access(zms_ftl, map_slpn, cache_idx);
+			if (cache_idx == -1) {
+				NVMEV_INFO("l2p insert failed?? map slpn %lld mapgran %d isresident %d\n", map_slpn,
+						   MAP_GRAN(i), is_resident);
+			} else {
+				l2p_access(zms_ftl, map_slpn, cache_idx);
+			}
 
 			if (MAP_GRAN(i) == PAGE_MAP) {
 				// pre read for page map
@@ -2523,7 +2567,7 @@ static bool handle_read_request(struct zms_ftl *zms_ftl, struct nvmev_request *r
 		for (int i = sidx; i < NUM_MAP; i++) {
 			uint64_t map_slpn = get_granularity_start_lpn(zms_ftl, lpn, MAP_GRAN(i));
 			cache_idx = get_l2pcacheidx(zms_ftl, lpn);
-			if (cache_idx != 1) {
+			if (cache_idx != -1) {
 				NVMEV_ZMS_L2P_DEBUG_VERBOSE("L2P Cache HIT for lpn %lld, gran %d\n", lpn,
 											MAP_GRAN(i));
 				zms_ftl->l2p_hits++;
@@ -2688,7 +2732,6 @@ void zone_reset(struct zms_ftl *zms_ftl, uint64_t zid, int sqid)
 		write_buffer->pgs -= flush_pgs;
 		NVMEV_ASSERT(last_write == write_buffer->pgs);
 		write_buffer->zid = -1;
-		write_buffer->nsid = -1;
 		write_buffer->sqid = -1;
 		write_buffer->flushing = true;
 		schedule_internal_operation(sqid, 0, write_buffer, bufs_to_release);
@@ -2716,3 +2759,4 @@ bool block_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_res
 	struct zms_ftl *zms_ftl = (struct zms_ftl *)ns->ftls;
 	return handle_read_request(zms_ftl, req, ret);
 }
+#endif

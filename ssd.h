@@ -171,7 +171,6 @@ struct buffer {
 	int zid;
 	uint64_t tt_lpns;
 	uint64_t *lpns; // for flush
-	int nsid;		// for flush
 	uint64_t pgs;	// for flush
 	uint32_t sqid;	// for flush
 	bool flushing;
@@ -268,7 +267,6 @@ struct ssdparams {
 };
 
 struct l2pcache_ent {
-	int nsid;
 	uint64_t lpn;
 	int granularity;
 	int resident;

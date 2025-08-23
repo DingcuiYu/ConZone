@@ -86,7 +86,6 @@ struct znsparams {
 	uint64_t tt_ppns;
 	uint32_t gc_thres_lines_high;
 	uint32_t migrate_thres_lines_low;
-	uint32_t migrate_thres_lines_high;
 	bool enable_gc_delay;
 };
 
@@ -132,6 +131,8 @@ struct zms_line {
 	struct zms_line *sub_lines;
 
 	unsigned long pgs_per_line;
+	// for rsv multiple lines
+	struct zms_line *rsv_nextline;
 };
 
 /* wp: record next write addr */

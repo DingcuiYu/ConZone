@@ -191,6 +191,14 @@ if __name__ == "__main__":
     default_memmapstart = "82G"
     # data namespace = 4GiB
     default_metasize = {"zoned": "256M", "block": "40M"}
+    default_pslcblks = {"zms": 28, "zns": 0}
+
+    prototype = prompt_input(
+        "Please enter the prototype of the emulator (zms or zns): ",
+        default="zms",
+        convert_fn=str,
+        type_name="string",
+    )
 
     memmap_start = prompt_input(
         "Please enter the start address of memmap (e.g., 82G): ",
@@ -201,7 +209,7 @@ if __name__ == "__main__":
 
     flash_type = prompt_input(
         "Please enter the flash type (e.g., TLC, QLC): ",
-        default="TLC",
+        default="QLC",
         convert_fn=str,
         type_name="string",
     )
@@ -232,7 +240,7 @@ if __name__ == "__main__":
 
     npslc_sblks = prompt_input(
         "Please enter the number of pSLC superblocks for data area:",
-        default=28,
+        default=default_pslcblks[prototype],
         convert_fn=int,
     )
 
@@ -293,7 +301,7 @@ if __name__ == "__main__":
 
     print(f"[Zone Size] {zone_size}")
 
-    if npslc_sblks < 4:
+    if prototype == "zms" and npslc_sblks < 4:
         npslc_sblks = 4
         print(f"[WARN] npslc_sblks should be aleast {npslc_sblks}")
 

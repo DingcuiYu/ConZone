@@ -19,7 +19,6 @@ nvmev.mod.c
 .vscode-test/
 .vscode-cpptools/
 log/
-.clang-format
 
 Mobibench/
 mnt/

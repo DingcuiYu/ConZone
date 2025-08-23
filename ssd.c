@@ -18,7 +18,6 @@ void buffer_init(struct buffer *buf, size_t size)
 	buf->tt_lpns = size / 4096;
 	buf->zid = -1;
 	buf->lpns = kmalloc(sizeof(uint64_t) * buf->tt_lpns, GFP_KERNEL);
-	buf->nsid = -1;
 	for (int i = 0; i < buf->tt_lpns; i++) {
 		buf->lpns[i] = INVALID_LPN;
 	}
@@ -92,7 +91,6 @@ static void ssd_init_l2pcache(struct l2pcache *cache)
 	for (i = 0; i < cache->num_slots; i++) {
 		cache->mapping[i] = kmalloc(sizeof(struct l2pcache_ent) * (cache->slot_size), GFP_KERNEL);
 		for (j = 0; j < cache->slot_size; j++) {
-			cache->mapping[i][j].nsid = SSD_TYPE_NONE;
 			cache->mapping[i][j].lpn = INVALID_LPN;
 			cache->mapping[i][j].granularity = PAGE_MAP;
 			cache->mapping[i][j].resident = 0;
@@ -170,6 +168,9 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 			DIV_ROUND_UP(capacity, (blk_size * spp->pls_per_lun * spp->luns_per_ch * spp->nchs));
 		// SSD can't be too small.
 		NVMEV_ASSERT(spp->blks_per_pl >= 4);
+#else
+		spp->blks_per_pl =
+			DIV_ROUND_UP(capacity, (blk_size * spp->pls_per_lun * spp->luns_per_ch * spp->nchs));
 #endif
 	}
 
