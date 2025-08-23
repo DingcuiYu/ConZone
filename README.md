@@ -13,7 +13,7 @@ Please feel free to contact us at [dingcuiy@gamil.com] if you have any questions
 
 ## ConZone QuickStart
 
-[Chinese Version] (https://invincible-ursinia-dbd.notion.site/QuickStart-ConZone-2588d13c675080c7ba5ddde5255e5612?source=copy_link)
+[Chinese Version](https://invincible-ursinia-dbd.notion.site/QuickStart-ConZone-2588d13c675080c7ba5ddde5255e5612?source=copy_link)
 
 ### Kernel Version and Environment
 
