@@ -68,9 +68,9 @@ enum cell_types { CELL_TYPE_LSB, CELL_TYPE_MSB, CELL_TYPE_CSB, CELL_TYPE_TSB, MA
 #define CH_BITS (8)
 #define RSB_BITS (TOTAL_PPA_BITS - (BLK_BITS + PAGE_BITS + PL_BITS + LUN_BITS + CH_BITS))
 
-#define ZMS_MAP_BITS (2)
-#define ZMS_RSV_BITS                                                                               \
-	(TOTAL_PPA_BITS - (BLK_BITS + PAGE_BITS + PL_BITS + LUN_BITS + CH_BITS + ZMS_MAP_BITS))
+#define CONZONE_MAP_BITS (2)
+#define CONZONE_RSV_BITS                                                                               \
+	(TOTAL_PPA_BITS - (BLK_BITS + PAGE_BITS + PL_BITS + LUN_BITS + CH_BITS + CONZONE_MAP_BITS))
 
 /* describe a physical page addr */
 struct ppa {
@@ -96,8 +96,8 @@ struct ppa {
 			uint64_t pl : PL_BITS;
 			uint64_t lun : LUN_BITS;
 			uint64_t ch : CH_BITS;
-			uint64_t map : ZMS_MAP_BITS;
-			uint64_t rsv : ZMS_RSV_BITS;
+			uint64_t map : CONZONE_MAP_BITS;
+			uint64_t rsv : CONZONE_RSV_BITS;
 		} zms;
 
 		uint64_t ppa;
@@ -252,7 +252,7 @@ struct ssdparams {
 
 	unsigned long long write_buffer_size;
 
-#if (BASE_SSD == ZMS_PROTOTYPE)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
 	int blksz; /* chunk mapping unit in bytes*/
 	int pslc_blksz;
 	uint64_t pslc_pgs_per_oneshotpg; /* # of pgs per oneshot pSLC page*/

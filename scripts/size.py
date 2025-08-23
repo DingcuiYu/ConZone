@@ -191,11 +191,11 @@ if __name__ == "__main__":
     default_memmapstart = "82G"
     # data namespace = 4GiB
     default_metasize = {"zoned": "256M", "block": "40M"}
-    default_pslcblks = {"zms": 28, "zns": 0}
+    default_pslcblks = {"conzone": 28, "zns": 0}
 
     prototype = prompt_input(
-        "Please enter the prototype of the emulator (zms or zns): ",
-        default="zms",
+        "Please enter the prototype of the emulator (conzone or zns): ",
+        default="conzone",
         convert_fn=str,
         type_name="string",
     )
@@ -219,7 +219,7 @@ if __name__ == "__main__":
 
     interface_type = prompt_input(
         "Please enter the interface type (e.g., block, zoned): ",
-        default="block",
+        default="zoned",
         convert_fn=str,
         type_name="string",
     )
@@ -267,12 +267,7 @@ if __name__ == "__main__":
 
     data_op = 0
     if interface_type == "block":
-        data_op = prompt_input(
-            "Enter the OP ratio for data area",
-            default=0.07,
-            convert_fn=float,
-            type_name="float",
-        )
+        print(f"the OP ratio for data area is {data_op}")
 
     print("----------------------------------")
 
@@ -301,7 +296,7 @@ if __name__ == "__main__":
 
     print(f"[Zone Size] {zone_size}")
 
-    if prototype == "zms" and npslc_sblks < 4:
+    if prototype == "conzone" and npslc_sblks < 4:
         npslc_sblks = 4
         print(f"[WARN] npslc_sblks should be aleast {npslc_sblks}")
 

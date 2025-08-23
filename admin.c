@@ -4,12 +4,12 @@
 #include "conv_ftl.h"
 #include "zns_ftl.h"
 
-#define sq_entry(entry_id) \
+#define sq_entry(entry_id)                                                                         \
 	queue->nvme_sq[SQ_ENTRY_TO_PAGE_NUM(entry_id)][SQ_ENTRY_TO_PAGE_OFFSET(entry_id)]
-#define cq_entry(entry_id) \
+#define cq_entry(entry_id)                                                                         \
 	queue->nvme_cq[CQ_ENTRY_TO_PAGE_NUM(entry_id)][CQ_ENTRY_TO_PAGE_OFFSET(entry_id)]
 
-#define prp_address_offset(prp, offset) \
+#define prp_address_offset(prp, offset)                                                            \
 	(page_address(pfn_to_page(prp >> PAGE_SHIFT) + offset) + (prp & ~PAGE_MASK))
 #define prp_address(prp) prp_address_offset(prp, 0)
 
@@ -19,7 +19,7 @@ static void __make_cq_entry_results(int eid, u16 ret, u32 result0, u32 result1)
 	struct nvme_common_command *cmd = &sq_entry(eid).common;
 	int cq_head = queue->cq_head;
 
-	cq_entry(cq_head) = (struct nvme_completion) {
+	cq_entry(cq_head) = (struct nvme_completion){
 		.command_id = cmd->command_id,
 		.sq_id = 0,
 		.sq_head = eid,
@@ -35,11 +35,7 @@ static void __make_cq_entry_results(int eid, u16 ret, u32 result0, u32 result1)
 	queue->cq_head = cq_head;
 }
 
-static void __make_cq_entry(int eid, u16 ret)
-{
-	__make_cq_entry_results(eid, ret, 0, 0);
-}
-
+static void __make_cq_entry(int eid, u16 ret) { __make_cq_entry_results(eid, ret, 0, 0); }
 
 /***
  * Queue managements
@@ -163,7 +159,6 @@ static void __nvmev_admin_delete_sq(int eid)
 	__make_cq_entry(eid, NVME_SC_SUCCESS);
 }
 
-
 /***
  * Log pages
  */
@@ -193,29 +188,35 @@ static void __nvmev_admin_get_log_page(int eid)
 	}
 	case NVME_LOG_CMD_EFFECTS: {
 		static const struct nvme_effects_log effects_log = {
-			.acs = {
-				[nvme_admin_get_log_page] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-				[nvme_admin_identify] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-				// [nvme_admin_abort_cmd] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-				[nvme_admin_set_features] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-				[nvme_admin_get_features] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-				[nvme_admin_async_event] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-				// [nvme_admin_keep_alive] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-			},
-			.iocs = {
-#if (SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(ZMS_ZONED))
-				/*
-				 * Zone Append is unsupported at the moment, but we fake it so that
-				 * Linux device driver doesn't lock it to R/O.
-				 *
-				 * A zone append command will result in device failure.
-				 */
-				[nvme_cmd_zone_append] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
-				[nvme_cmd_zone_mgmt_send] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP | NVME_CMD_EFFECTS_LBCC),
-				[nvme_cmd_zone_mgmt_recv] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+			.acs =
+				{
+					[nvme_admin_get_log_page] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+					[nvme_admin_identify] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+					// [nvme_admin_abort_cmd] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+					[nvme_admin_set_features] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+					[nvme_admin_get_features] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+					[nvme_admin_async_event] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+					// [nvme_admin_keep_alive] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+				},
+			.iocs =
+				{
+#if (SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(CONZONE_ZONED))
+					/*
+					 * Zone Append is unsupported at the moment, but we fake it so that
+					 * Linux device driver doesn't lock it to R/O.
+					 *
+					 * A zone append command will result in device failure.
+					 */
+					[nvme_cmd_zone_append] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
+					[nvme_cmd_zone_mgmt_send] =
+						cpu_to_le32(NVME_CMD_EFFECTS_CSUPP | NVME_CMD_EFFECTS_LBCC),
+					[nvme_cmd_zone_mgmt_recv] = cpu_to_le32(NVME_CMD_EFFECTS_CSUPP),
 #endif
-			},
-			.resv = { 0, },
+				},
+			.resv =
+				{
+					0,
+				},
 		};
 
 		__memcpy(page, &effects_log, len);
@@ -233,14 +234,14 @@ static void __nvmev_admin_get_log_page(int eid)
 		 * Warn the users and make it perfectly clear that this needs to be implemented.
 		 */
 		NVMEV_ERROR("Unimplemented log page identifier: 0x%hhx,"
-			    "the system will be unstable!\n", cmd->lid);
+					"the system will be unstable!\n",
+					cmd->lid);
 		__memset(page, 0, len);
 		break;
 	}
 
 	__make_cq_entry(eid, NVME_SC_SUCCESS);
 }
-
 
 /***
  * Identify functions
@@ -348,7 +349,7 @@ static void __nvmev_admin_identify_zns_namespace(int eid)
 	struct zns_ftl *zns_ftl = (struct zns_ftl *)nvmev_vdev->ns[nsid].ftls;
 	struct znsparams *zpp = &zns_ftl->zp;
 
-	if (NS_SSD_TYPE(nsid) != SSD_TYPE_ZNS && NS_SSD_TYPE(nsid) != SSD_TYPE_ZMS_ZONED) {
+	if (NS_SSD_TYPE(nsid) != SSD_TYPE_ZNS && NS_SSD_TYPE(nsid) != SSD_TYPE_CONZONE_ZONED) {
 		__make_cq_entry(eid, NVME_SC_SUCCESS);
 		return;
 	}
@@ -357,7 +358,7 @@ static void __nvmev_admin_identify_zns_namespace(int eid)
 	ns = prp_address(cmd->prp1);
 	memset(ns, 0x00, sizeof(*ns));
 
-	ns->zoc = 0; //currently not support variable zone capacity
+	ns->zoc = 0; // currently not support variable zone capacity
 	ns->ozcs = 0;
 	ns->mar = zpp->nr_active_zones - 1; // 0-based
 
@@ -365,7 +366,7 @@ static void __nvmev_admin_identify_zns_namespace(int eid)
 
 	/* zrwa enabled */
 	if (zpp->nr_zrwa_zones > 0) {
-		ns->ozcs |= OZCS_ZRWA; //Support ZRWA
+		ns->ozcs |= OZCS_ZRWA; // Support ZRWA
 
 		ns->numzrwa = zpp->nr_zrwa_zones - 1;
 
@@ -408,9 +409,10 @@ static void __nvmev_admin_identify_ctrl(int eid)
 	memset(ctrl, 0x00, sizeof(*ctrl));
 
 	ctrl->nn = nvmev_vdev->nr_ns;
-	ctrl->oncs = 0; //optional command
-	ctrl->acl = 3; //minimum 4 required, 0's based value
-	//[MISAO] The device supports host-issued FUA or flush commands only when this variable is set to 1.
+	ctrl->oncs = 0; // optional command
+	ctrl->acl = 3;	// minimum 4 required, 0's based value
+	//[MISAO] The device supports host-issued FUA or flush commands only when this variable is set
+	//to 1.
 	ctrl->vwc = 1;
 	snprintf(ctrl->sn, sizeof(ctrl->sn), "CSL_Virt_SN_%02d", 1);
 	snprintf(ctrl->mn, sizeof(ctrl->mn), "CSL_Virt_MN_%02d", 1);
@@ -451,7 +453,6 @@ static void __nvmev_admin_identify(int eid)
 		NVMEV_ERROR("I don't know %d\n", cns);
 	}
 }
-
 
 /***
  * Set/get features
@@ -535,7 +536,6 @@ static void __nvmev_admin_get_features(int eid)
 	__make_cq_entry_results(eid, NVME_SC_SUCCESS, result0, result1);
 }
 
-
 /***
  * Misc
  */
@@ -545,14 +545,13 @@ static void __nvmev_admin_async_event(int eid)
 	// __make_cq_entry(eid, NVME_SC_ASYNC_LIMIT);
 }
 
-
 static void __nvmev_proc_admin_req(int entry_id)
 {
 	struct nvmev_admin_queue *queue = nvmev_vdev->admin_q;
 	struct nvme_command *sqe = &sq_entry(entry_id);
 
-	NVMEV_DEBUG("%s: %d 0x%x 0x%x\n", __func__, entry_id,
-			sqe->common.opcode, sqe->common.command_id);
+	NVMEV_DEBUG("%s: %d 0x%x 0x%x\n", __func__, entry_id, sqe->common.opcode,
+				sqe->common.command_id);
 
 	switch (sqe->common.opcode) {
 	case nvme_admin_delete_sq:
@@ -617,6 +616,4 @@ void nvmev_proc_admin_sq(int new_db, int old_db)
 	nvmev_signal_irq(0); /* ACQ is always associated with interrupt vector 0 */
 }
 
-void nvmev_proc_admin_cq(int new_db, int old_db)
-{
-}
+void nvmev_proc_admin_cq(int new_db, int old_db) {}

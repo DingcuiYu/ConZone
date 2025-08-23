@@ -9,16 +9,16 @@
 #define ZNS_PROTOTYPE 2
 #define KV_PROTOTYPE 3
 #define WD_ZN540 4
-#define ZMS_PROTOTYPE 5
+#define CONZONE_PROTOTYPE 5
 
 /* SSD Type */
 #define SSD_TYPE_NVM 0
 #define SSD_TYPE_CONV 1
 #define SSD_TYPE_ZNS 2
 #define SSD_TYPE_KV 3
-#define SSD_TYPE_ZMS_ZONED 4
-#define SSD_TYPE_ZMS_META 5
-#define SSD_TYPE_ZMS_BLOCK 6
+#define SSD_TYPE_CONZONE_ZONED 4
+#define SSD_TYPE_CONZONE_META 5
+#define SSD_TYPE_CONZONE_BLOCK 6
 #define SSD_TYPE_NONE 7
 
 /* Cell Mode */
@@ -258,7 +258,7 @@ static_assert((ZONE_SIZE % DIES_PER_ZONE) == 0);
 #define LBA_BITS (9)
 #define LBA_SIZE (1 << LBA_BITS)
 
-#elif (BASE_SSD == ZMS_PROTOTYPE)
+#elif (BASE_SSD == CONZONE_PROTOTYPE)
 #define NR_NAMESPACES (2ULL)
 
 static_assert(NR_NAMESPACES <= 2);
@@ -267,23 +267,23 @@ static_assert(NR_NAMESPACES <= 2);
 // QLC
 //  64GiB ZONED: MB(640ULL) BLOCK MB(512ULL)
 //  4GiB ZONED: MB(1152ULL) BLOCK MB(512ULL)
-#define PHYSICAL_META_SIZE MB(384ULL)
+#define PHYSICAL_META_SIZE MB(1152ULL)
 
 //  64GiB ZONED: MB(512ULL) BLOCK: MB(376ULL)
 //  4GiB ZONED: 256ULL BLOCK: MB(40ULL)
-#define LOGICAL_META_SIZE MB(40ULL)
+#define LOGICAL_META_SIZE MB(256ULL)
 
-#define NS_SSD_TYPE_0 SSD_TYPE_ZMS_META
+#define NS_SSD_TYPE_0 SSD_TYPE_CONZONE_META
 #define NS_CAPACITY_0 (PHYSICAL_META_SIZE)
-#define NS_SSD_TYPE_1 SSD_TYPE_ZMS_BLOCK
+#define NS_SSD_TYPE_1 SSD_TYPE_CONZONE_ZONED
 #define NS_CAPACITY_1 (0ULL)
 #define MDTS (6)
 // The maximum queue depth for consumer-grade devices is typically 32 (or 64) (MQES+1)
 #define MQES (31)
 
-#define CELL_MODE (CELL_MODE_TLC)
+#define CELL_MODE (CELL_MODE_QLC)
 
-#define SLC_BYPASS (1)
+#define SLC_BYPASS (0)
 static_assert(!SLC_BYPASS || (CELL_MODE != CELL_MODE_QLC));
 
 #define NORMAL_ONLY (0)
@@ -304,7 +304,7 @@ static_assert(!(NORMAL_ONLY && !SLC_BYPASS));
 static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 
 #define BLKS_PER_PLN 0	   /* BLK_SIZE should not be 0 */
-#define BLK_SIZE MB(24ULL) // TLC - MB(24ULL), QLC ~ 48MB(32MB, to make it be po2) MB(32ULL)
+#define BLK_SIZE MB(32ULL) // TLC - MB(24ULL), QLC ~ 48MB(32MB, to make it be po2) MB(32ULL)
 static_assert(BLK_SIZE || BLKS_PER_PLN);
 static_assert(((BLK_SIZE * PLNS_PER_LUN) % ONESHOT_PAGE_SIZE) == 0);
 

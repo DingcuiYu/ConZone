@@ -370,13 +370,13 @@ static void __init_nvme_ctrl_regs(struct pci_dev *dev)
 			{
 				.to = 1,
 				.mpsmin = 0,
-#if (SUPPORTED_SSD_TYPE(ZMS_ZONED))
+#if (SUPPORTED_SSD_TYPE(CONZONE_ZONED))
 				.mqes = MQES, // 1024 - 1, // 0-based value
 #else
 				.mqes = 1024 - 1, // 0-based value
 #endif
 
-#if (SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(ZMS_ZONED))
+#if (SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(CONZONE_ZONED))
 				.css = CAP_CSS_BIT_SPECIFIC,
 #endif
 			},

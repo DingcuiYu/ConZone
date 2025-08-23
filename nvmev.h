@@ -41,8 +41,8 @@
 #define NVMEV_ERROR(string, args...) printk(KERN_ERR "%s: [ERROR]" string, NVMEV_DRV_NAME, ##args)
 #define NVMEV_ASSERT(x) BUG_ON((!(x)))
 
-#define NVMEV_ZMS_PRINT_TIME(string,                                                               \
-							 args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_PRINT_TIME(                                                                  \
+	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 
 #ifdef CONFIG_NVMEV_DEBUG
 #define NVMEV_DEBUG(string, args...) printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)

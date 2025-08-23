@@ -8,27 +8,28 @@
 #include "nvme_zns.h"
 
 #define NVMEV_ZNS_DEBUG(string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_DEBUG(string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_CONV_RW_DEBUG(                                                                   \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_RW_DEBUG(string,                                                                 \
-						   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_RW_DEBUG_VERBOSE(                                                                \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_L2P_DEBUG(string,                                                                \
+#define NVMEV_CONZONE_DEBUG(string,                                                                \
 							args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_CONV_MAPPING_DEBUG(                                                              \
+#define NVMEV_CONZONE_CONV_RW_DEBUG(                                                               \
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_MAPPING_DEBUG(                                                                   \
+#define NVMEV_CONZONE_RW_DEBUG(string,                                                             \
+							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_RW_DEBUG_VERBOSE(                                                            \
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_L2P_DEBUG_VERBOSE(                                                               \
+#define NVMEV_CONZONE_L2P_DEBUG(                                                                   \
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_GC_DEBUG(string,                                                                 \
-						   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_GC_DEBUG_VERBOSE(                                                                \
+#define NVMEV_CONZONE_CONV_MAPPING_DEBUG(                                                          \
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_ZMS_PRINT_BW(string,                                                                 \
-						   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_MAPPING_DEBUG(                                                               \
+	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_L2P_DEBUG_VERBOSE(                                                           \
+	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_GC_DEBUG(string,                                                             \
+							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_GC_DEBUG_VERBOSE(                                                            \
+	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_PRINT_BW(string,                                                             \
+							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 
 enum {
 	SUCCESS = 0,
@@ -402,7 +403,7 @@ bool zns_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_resu
 bool zns_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
 bool zns_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
 
-#if (BASE_SSD == ZMS_PROTOTYPE)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
 void zms_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,
 						uint32_t cpu_nr_dispatcher);
 void zms_remove_namespace(struct nvmev_ns *ns);

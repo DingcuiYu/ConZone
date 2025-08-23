@@ -534,9 +534,10 @@ static void NVMEV_NAMESPACE_INIT(struct nvmev_dev *nvmev_vdev)
 			conv_init_namespace(&ns[i], i, size, ns_addr, disp_no);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_ZNS)
 			zns_init_namespace(&ns[i], i, size, ns_addr, disp_no);
-#if (BASE_SSD == ZMS_PROTOTYPE)
-		else if (NS_SSD_TYPE(i) == SSD_TYPE_ZMS_ZONED || NS_SSD_TYPE(i) == SSD_TYPE_ZMS_META ||
-				 NS_SSD_TYPE(i) == SSD_TYPE_ZMS_BLOCK)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		else if (NS_SSD_TYPE(i) == SSD_TYPE_CONZONE_ZONED ||
+				 NS_SSD_TYPE(i) == SSD_TYPE_CONZONE_META ||
+				 NS_SSD_TYPE(i) == SSD_TYPE_CONZONE_BLOCK)
 			zms_init_namespace(&ns[i], i, size, ns_addr, disp_no); // SSD is not initialized
 #endif
 		// else if (NS_SSD_TYPE(i) == SSD_TYPE_KV)
@@ -549,7 +550,7 @@ static void NVMEV_NAMESPACE_INIT(struct nvmev_dev *nvmev_vdev)
 		NVMEV_INFO("ns %d/%d: size %lld MiB\n", i, nr_ns, BYTE_TO_MB(ns[i].size));
 	}
 
-#if (BASE_SSD == ZMS_PROTOTYPE)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
 	zms_realize_namespaces(ns, nr_ns, nvmev_vdev->config.storage_size, disp_no);
 #endif
 	nvmev_vdev->ns = ns;
@@ -563,7 +564,7 @@ static void NVMEV_NAMESPACE_FINAL(struct nvmev_dev *nvmev_vdev)
 	const int nr_ns = NR_NAMESPACES; // XXX: allow for dynamic nvmev_vdev->nr_ns
 	int i;
 
-#if (BASE_SSD == ZMS_PROTOTYPE)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
 	zms_remove_ssd(ns);
 #endif
 
@@ -574,9 +575,10 @@ static void NVMEV_NAMESPACE_FINAL(struct nvmev_dev *nvmev_vdev)
 			conv_remove_namespace(&ns[i]);
 		else if (NS_SSD_TYPE(i) == SSD_TYPE_ZNS)
 			zns_remove_namespace(&ns[i]);
-#if (BASE_SSD == ZMS_PROTOTYPE)
-		else if (NS_SSD_TYPE(i) == SSD_TYPE_ZMS_ZONED || NS_SSD_TYPE(i) == SSD_TYPE_ZMS_META ||
-				 NS_SSD_TYPE(i) == SSD_TYPE_ZMS_BLOCK)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		else if (NS_SSD_TYPE(i) == SSD_TYPE_CONZONE_ZONED ||
+				 NS_SSD_TYPE(i) == SSD_TYPE_CONZONE_META ||
+				 NS_SSD_TYPE(i) == SSD_TYPE_CONZONE_BLOCK)
 			zms_remove_namespace(&ns[i]);
 #endif
 		// else if (NS_SSD_TYPE(i) == SSD_TYPE_KV)
@@ -608,8 +610,8 @@ static void __print_base_config(void)
 	case WD_ZN540:
 		type = "WD ZN540 ZNS SSD";
 		break;
-	case ZMS_PROTOTYPE:
-		type = "ZMS SSD Prototype";
+	case CONZONE_PROTOTYPE:
+		type = "CONZONE SSD Prototype";
 		break;
 	}
 

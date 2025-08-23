@@ -22,8 +22,8 @@ static void __init_buffer(struct zns_ftl *zns_ftl)
 
 	if (zone_wb_size) {
 		uint32_t wb_size = zone_wb_size;
-#if (BASE_SSD == ZMS_PROTOTYPE)
-		if (zns_ftl->zp.ns_type == SSD_TYPE_ZMS_ZONED) {
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		if (zns_ftl->zp.ns_type == SSD_TYPE_CONZONE_ZONED) {
 			switch (WB_MGNT) {
 			case WB_STATIC:
 			case WB_MOD:
@@ -52,8 +52,8 @@ static void __init_descriptor(struct zns_ftl *zns_ftl)
 	uint32_t i = 0;
 	__init_buffer(zns_ftl);
 
-	int ns_type = BASE_SSD == ZMS_PROTOTYPE ? zns_ftl->zp.ns_type : SSD_TYPE_ZNS;
-	if (ns_type != SSD_TYPE_ZMS_ZONED && ns_type != SSD_TYPE_ZNS)
+	int ns_type = BASE_SSD == CONZONE_PROTOTYPE ? zns_ftl->zp.ns_type : SSD_TYPE_ZNS;
+	if (ns_type != SSD_TYPE_CONZONE_ZONED && ns_type != SSD_TYPE_ZNS)
 		return;
 
 	uint32_t zone_capacity = zns_ftl->zp.zone_capacity;
@@ -220,7 +220,7 @@ static void zns_flush(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 	uint32_t i;
 	struct zns_ftl *zns_ftl = (struct zns_ftl *)ns->ftls;
 
-#if (BASE_SSD == ZMS_PROTOTYPE)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
 	// flush write buffer
 	struct zms_ftl *zms_ftl = (struct zms_ftl *)(&(*zns_ftl));
 
@@ -242,7 +242,7 @@ static void zns_flush(struct nvmev_ns *ns, struct nvmev_request *req, struct nvm
 
 	ret->status = NVME_SC_SUCCESS;
 	ret->nsecs_target = latest;
-#if (BASE_SSD == ZMS_PROTOTYPE)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
 	zms_ftl->host_flush_cnt++;
 #endif
 	return;
@@ -283,7 +283,7 @@ bool zns_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct
 	return true;
 }
 
-#if (BASE_SSD == ZMS_PROTOTYPE)
+#if (BASE_SSD == CONZONE_PROTOTYPE)
 bool zms_zoned_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req,
 								struct nvmev_result *ret)
 {
@@ -372,7 +372,7 @@ static void zms_init_params(struct znsparams *zpp, uint64_t physical_size, struc
 		.migrate_thres_lines_low = 2,
 		.enable_gc_delay = 1,
 	};
-	if (ns_type == SSD_TYPE_ZMS_META) {
+	if (ns_type == SSD_TYPE_CONZONE_META) {
 		zpp->logical_size = LOGICAL_META_SIZE;
 		zpp->nr_wb = NR_META_WB;
 		zpp->zone_wb_size = META_WB_SIZE;
@@ -385,7 +385,7 @@ static void zms_init_params(struct znsparams *zpp, uint64_t physical_size, struc
 				   BYTE_TO_KB(zpp->zone_wb_size), zpp->nr_wb);
 		NVMEV_INFO("[# of pSLC Superblocks] %d \n", zpp->pslc_blks);
 		return;
-	} else if (ns_type == SSD_TYPE_ZMS_BLOCK) {
+	} else if (ns_type == SSD_TYPE_CONZONE_BLOCK) {
 		zpp->pba_pcent = (int)((1 + OP_AREA_PERCENT) * 100);
 		zpp->logical_size =
 			(uint64_t)(((zpp->physical_size - DATA_pSLC_RSV_SIZE) * 100) / zpp->pba_pcent);
@@ -402,7 +402,7 @@ static void zms_init_params(struct znsparams *zpp, uint64_t physical_size, struc
 				   BYTE_TO_KB(zpp->zone_wb_size), zpp->nr_wb);
 		NVMEV_INFO("[# of pSLC Superblocks] %d \n", zpp->pslc_blks);
 		return;
-	} else if (ns_type == SSD_TYPE_ZMS_ZONED) {
+	} else if (ns_type == SSD_TYPE_CONZONE_ZONED) {
 		uint32_t nr_zones;
 		zpp->logical_size = zpp->physical_size - DATA_pSLC_RSV_SIZE;
 		zpp->nr_wb = SLC_BYPASS ? ZONE_WB_SIZE / (ONESHOT_PAGE_SIZE * NAND_CHANNELS *
@@ -466,7 +466,7 @@ static void zms_init_ftl(struct zms_ftl *zms_ftl, struct znsparams *zpp, void *m
 	};
 
 	__init_descriptor((struct zns_ftl *)(&(*zms_ftl)));
-	if (zpp->ns_type == SSD_TYPE_ZMS_ZONED) {
+	if (zpp->ns_type == SSD_TYPE_CONZONE_ZONED) {
 		__init_resource((struct zns_ftl *)(&(*zms_ftl)));
 	}
 }
@@ -717,7 +717,7 @@ struct zms_line *get_next_free_line(struct zms_ftl *zms_ftl, int location)
 					location == LOC_PSLC ? "pslc" : "normal");
 		print_lines(zms_ftl);
 		if (location == LOC_PSLC) {
-			if (zms_ftl->zp.ns_type == SSD_TYPE_ZMS_ZONED) {
+			if (zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_ZONED) {
 				int *agg_len = zms_ftl->zone_agg_pgs;
 				uint64_t **agg = zms_ftl->zone_agg_lpns;
 				for (int i = 0; i < zms_ftl->zp.nr_zones; i++) {
@@ -832,7 +832,7 @@ static void zms_realize_ftl(struct zms_ftl *zms_ftl)
 	int interleave_sline = 0;
 	int pslc_eline = zpp->pslc_lines;
 
-	if ((zpp->ns_type == SSD_TYPE_ZMS_ZONED && zpp->pgs_per_zone < ssd->sp.pgs_per_line) ||
+	if ((zpp->ns_type == SSD_TYPE_CONZONE_ZONED && zpp->pgs_per_zone < ssd->sp.pgs_per_line) ||
 		zpp->tt_lines < 4) {
 		interleave_sline = zpp->tt_lines;
 	} else if (zpp->pslc_lines < 4) {
@@ -842,13 +842,13 @@ static void zms_realize_ftl(struct zms_ftl *zms_ftl)
 	__init_lines(zms_ftl, pslc_eline, interleave_sline);
 	// init normal area
 	if (zpp->tt_lines - zpp->pslc_lines > 0) {
-		if (zpp->ns_type == SSD_TYPE_ZMS_META) {
+		if (zpp->ns_type == SSD_TYPE_CONZONE_META) {
 			NVMEV_ERROR("The meta data is only written to the SLC! tt lines %lu pslc lines %lu\n",
 						zpp->tt_lines, zpp->pslc_lines);
 			NVMEV_ASSERT(0);
 		}
 		prepare_write_pointer(zms_ftl, USER_IO, LOC_NORMAL);
-		if (zpp->ns_type != SSD_TYPE_ZMS_ZONED)
+		if (zpp->ns_type != SSD_TYPE_CONZONE_ZONED)
 			prepare_write_pointer(zms_ftl, GC_IO, LOC_NORMAL);
 	}
 
@@ -873,7 +873,7 @@ static void zms_realize_ftl(struct zms_ftl *zms_ftl)
 
 	// for pSLC->QLC migration in zoned device
 	zms_ftl->num_aggs = 1;
-	if (zms_ftl->zp.ns_type == SSD_TYPE_ZMS_ZONED) {
+	if (zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_ZONED) {
 		zms_ftl->num_aggs = zms_ftl->zp.nr_zones;
 	}
 	zms_ftl->zone_agg_pgs = kzalloc(sizeof(int) * zms_ftl->num_aggs, GFP_KERNEL);
@@ -906,18 +906,18 @@ void zms_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *m
 
 	*ns = (struct nvmev_ns){
 		.id = id,
-		.csi = zpp.ns_type == SSD_TYPE_ZMS_ZONED ? NVME_CSI_ZNS : NVME_CSI_NVM,
+		.csi = zpp.ns_type == SSD_TYPE_CONZONE_ZONED ? NVME_CSI_ZNS : NVME_CSI_NVM,
 		.nr_parts = nr_parts,
 		.ftls = (void *)zms_ftl,
 		.size = zpp.logical_size,
 		.mapped = mapped_addr,
 
 		/*register io command handler*/
-		.proc_io_cmd = zpp.ns_type == SSD_TYPE_ZMS_ZONED ? zms_zoned_proc_nvme_io_cmd
-														 : zms_block_proc_nvme_io_cmd,
+		.proc_io_cmd = zpp.ns_type == SSD_TYPE_CONZONE_ZONED ? zms_zoned_proc_nvme_io_cmd
+															 : zms_block_proc_nvme_io_cmd,
 	};
 	NVMEV_INFO("---------zms init %s namespace id %d csi %d ftl %p--------------\n",
-			   zpp.ns_type == SSD_TYPE_ZMS_ZONED ? "zoned" : "block", id, ns->csi, zms_ftl);
+			   zpp.ns_type == SSD_TYPE_CONZONE_ZONED ? "zoned" : "block", id, ns->csi, zms_ftl);
 	return;
 }
 
@@ -1000,7 +1000,8 @@ void zms_realize_namespaces(struct nvmev_ns *ns, int nr_ns, uint64_t size,
 		zms_ftl->ssd = ssd;
 		zms_realize_ftl(zms_ftl);
 		NVMEV_INFO("--------------- realize %s namespace %d ssd %p--------------\n",
-				   zms_ftl->zp.ns_type == SSD_TYPE_ZMS_ZONED ? "zoned" : "block", i, zms_ftl->ssd);
+				   zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_ZONED ? "zoned" : "block", i,
+				   zms_ftl->ssd);
 	}
 
 	return;
