@@ -1438,31 +1438,31 @@ static uint64_t nand_write(struct zms_ftl *zms_ftl, uint64_t nsecs_start, uint64
 			zms_ftl->migration_pgs += pgs;
 		if (io_type == GC_IO)
 			zms_ftl->gc_pgs += pgs;
-		// NVMEV_INFO("%s flushed %d pgs( idx %d loc %d) ppa ch %d lun %d pl %d blk %d pg %d
-		// \n",__func__,pgs,idx,loc,ppa.zms.ch,ppa.zms.lun,ppa.zms.pl,ppa.zms.blk,ppa.zms.pg);
-		if (io_type == USER_IO) {
-			if (zms_ftl->zp.ns_type != SSD_TYPE_CONZONE_META && location == LOC_PSLC) {
-				if (SLC_BYPASS) {
-					int agg_idx = get_aggidx(zms_ftl, lpn);
-					for (uint64_t slpn = lpn + 1 - pgs; slpn <= lpn; slpn++) {
-						int agg_len = zms_ftl->zone_agg_pgs[agg_idx];
-						zms_ftl->zone_agg_lpns[agg_idx][agg_len] = slpn;
-						zms_ftl->zone_agg_pgs[agg_idx]++;
-					}
-					consume_write_credit(zms_ftl, location, pgs);
-					check_and_refill_write_credit(zms_ftl, location);
-				} else {
-					try_migrate(zms_ftl);
-				}
+	}
+
+	// NVMEV_INFO("%s flushed %d pgs( idx %d loc %d) ppa ch %d lun %d pl %d blk %d pg %d
+	// \n",__func__,pgs,idx,loc,ppa.zms.ch,ppa.zms.lun,ppa.zms.pl,ppa.zms.blk,ppa.zms.pg);
+	if (io_type == USER_IO) {
+		if (zms_ftl->zp.ns_type != SSD_TYPE_CONZONE_META && location == LOC_PSLC) {
+			if (SLC_BYPASS) {
+				int agg_idx = get_aggidx(zms_ftl, lpn);
+				int agg_len = zms_ftl->zone_agg_pgs[agg_idx];
+				zms_ftl->zone_agg_lpns[agg_idx][agg_len] = lpn;
+				zms_ftl->zone_agg_pgs[agg_idx]++;
+
+				consume_write_credit(zms_ftl, location, 1);
+				check_and_refill_write_credit(zms_ftl, location);
+			} else {
+				try_migrate(zms_ftl);
 			}
 		}
+	}
 
-		if (io_type != GC_IO) {
-			if (zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_META ||
-				(zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_BLOCK && location == LOC_NORMAL)) {
-				consume_write_credit(zms_ftl, location, pgs);
-				check_and_refill_write_credit(zms_ftl, location);
-			}
+	if (io_type != GC_IO) {
+		if (zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_META ||
+			(zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_BLOCK && location == LOC_NORMAL)) {
+			consume_write_credit(zms_ftl, location, 1);
+			check_and_refill_write_credit(zms_ftl, location);
 		}
 	}
 	return nsecs_latest;
@@ -1691,6 +1691,7 @@ static void submit_internal_write(struct zms_ftl *zms_ftl, struct zms_line *line
 					}
 					agg_len = 0;
 				}
+				zms_ftl->gc_copy_pgs++;
 			}
 		}
 		nextpage(zms_ftl, &ppa, 0);
@@ -2145,10 +2146,13 @@ static int get_flush_target_location(struct zms_ftl *zms_ftl, struct buffer *wri
 		uint64_t lpn = write_buffer->lpns[written_pgs];
 		int agg_idx = get_aggidx(zms_ftl, lpn);
 		uint64_t to_write_pgs = write_buffer->pgs - written_pgs;
-		if (zms_ftl->zone_agg_pgs[agg_idx] + to_write_pgs < zms_ftl->ssd->sp.pgs_per_oneshotpg)
+		if (zms_ftl->zone_agg_pgs[agg_idx] + to_write_pgs < zms_ftl->ssd->sp.pgs_per_oneshotpg) {
 			loc = LOC_PSLC;
-		else
+			zms_ftl->flush_to_slc++;
+		} else {
 			loc = LOC_NORMAL;
+			zms_ftl->flush_to_regular++;
+		}
 	}
 	return loc;
 }
@@ -2167,6 +2171,28 @@ uint64_t buffer_flush(struct zms_ftl *zms_ftl, struct buffer *write_buffer, uint
 	bool loc = LOC_NORMAL;
 	int agg_idx, agg_len = 0;
 	uint64_t *agg_lpns;
+
+	// Deleting aggregated LPNs that expire after in-place updates
+	if (zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_BLOCK) {
+		agg_idx = get_aggidx(zms_ftl, lpn);
+		agg_len = zms_ftl->zone_agg_pgs[agg_idx];
+		agg_lpns = zms_ftl->zone_agg_lpns[agg_idx];
+		if (agg_len > 0) {
+			for (int i = 0; i < write_buffer->pgs; i++) {
+				for (int j = 0; j < agg_len; j++) {
+					if (agg_lpns[j] == write_buffer->lpns[i]) {
+						for (int k = j + 1; k < agg_len; k++) {
+							agg_lpns[k - 1] = agg_lpns[k];
+						}
+						agg_len--;
+						// There are no duplicate LPN in write_buffer->lpns
+						break;
+					}
+				}
+			}
+			zms_ftl->zone_agg_pgs[agg_idx] = agg_len;
+		}
+	}
 
 	int to_write_pgs = 0;
 	for (int i = 0; i < write_buffer->pgs; i += pgs) {
@@ -2187,12 +2213,13 @@ uint64_t buffer_flush(struct zms_ftl *zms_ftl, struct buffer *write_buffer, uint
 				ppa = get_maptbl_ent(zms_ftl, write_buffer->lpns[i + j]);
 				if (mapped_ppa(&ppa)) {
 					if (zms_ftl->zp.ns_type != SSD_TYPE_CONZONE_ZONED) {
+						// update the metadata of expired page in internal_write
 						zms_ftl->inplace_update++;
 					} else {
 						NVMEV_ERROR("update in zoned storage?? lpn %lld loc %d ppa loc %d ppaidx "
 									"%lld\n",
-									lpn, loc, check_location_type(zms_ftl, &ppa),
-									ppa_2_pgidx(zms_ftl, &ppa));
+									write_buffer->lpns[i + j], loc,
+									check_location_type(zms_ftl, &ppa), ppa_2_pgidx(zms_ftl, &ppa));
 					}
 				}
 			}

@@ -946,6 +946,9 @@ void zms_print_statistic_info(struct zms_ftl *zms_ftl)
 			   zms_ftl->lm.free_line_cnt, zms_ftl->lm.full_line_cnt, zms_ftl->lm.victim_line_cnt,
 			   zms_ftl->lm.tt_lines - zms_ftl->lm.pslc_tt_lines);
 	NVMEV_INFO("[# of inplace update] %d\n", zms_ftl->inplace_update);
+	NVMEV_INFO("[flush_to_slc] %d\n", zms_ftl->flush_to_slc);
+	NVMEV_INFO("[flush_to_regular] %d\n", zms_ftl->flush_to_regular);
+	NVMEV_INFO("[gc_copy_pgs] %d\n", zms_ftl->gc_copy_pgs);
 }
 
 void zms_remove_namespace(struct nvmev_ns *ns)

@@ -243,7 +243,10 @@ struct zms_ftl {
 	uint32_t slc_erase_cnt;
 	int gc_count;
 	int early_flush_cnt;
-	int inplace_update; // for debug
+	int inplace_update;	  // for debug
+	int flush_to_slc;	  // for debug
+	int flush_to_regular; // for debug
+	int gc_copy_pgs;	  // for debug
 };
 
 /* zns internal functions */

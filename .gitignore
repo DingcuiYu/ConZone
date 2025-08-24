@@ -22,6 +22,8 @@ log/
 
 Mobibench/
 mnt/
+private_scripts/
+f2fs_stat/
 
 # === Git ===
 *.orig
