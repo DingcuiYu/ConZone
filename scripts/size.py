@@ -267,6 +267,7 @@ if __name__ == "__main__":
 
     data_op = 0
     if interface_type == "block":
+        data_op = meta_op
         print(f"the OP ratio for data area is {data_op}")
 
     print("----------------------------------")
