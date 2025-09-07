@@ -6,18 +6,25 @@ META_DEVICE = "/dev/nvme2n1"
 DATA_DEVICE = "/dev/nvme2n2"
 
 # make -j `nproc`
-## TLC
-# zoned sudo insmod ./nvmev.ko memmap_start=82G memmap_size=7657M cpus=7,8
-# block sudo insmod ./nvmev.ko memmap_start=82G memmap_size=7465M cpus=7,8
-## QLC
-# zoned sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8833M cpus=7,8
-# block sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8577M cpus=7,8
-INSMOD_CMD = f"sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8833M cpus=7,8"
+
+## 4 GiB
+### TLC
+#### zoned sudo insmod ./nvmev.ko memmap_start=82G memmap_size=7657M cpus=7,8
+#### block sudo insmod ./nvmev.ko memmap_start=82G memmap_size=7465M cpus=7,8
+### QLC
+#### block sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8577M cpus=7,8
+#### zoned sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8833M cpus=7,8
+
+## 64 GiB
+### TLC
+#### block insmod ./nvmev.ko memmap_start=82G memmap_size=74089M cpus=7,8
+#### zoned insmod ./nvmev.ko memmap_start=82G memmap_size=69961M cpus=7,8
+INSMOD_CMD = f"sudo insmod ./nvmev.ko memmap_start=82G memmap_size=69961M cpus=7,8"
 
 MKFS_DIR = "f2fs-tools-1.14.0/build/sbin"
 MKFS_CMD = f"sudo ./mkfs.f2fs -f -m -c {DATA_DEVICE} {META_DEVICE}"
-# sudo ./mkfs.f2fs -f -c /dev/nvme2n2 /dev/nvme2n1
-# sudo ./mkfs.f2fs -f -m -c /dev/nvme2n2 /dev/nvme2n1
+# block sudo ./mkfs.f2fs -f -c /dev/nvme2n2 /dev/nvme2n1
+# zone sudo ./mkfs.f2fs -f -m -c /dev/nvme2n2 /dev/nvme2n1
 
 # MOUNT_CMD = "mount -o age_extent_cache,discard /dev/nvme2n1 mnt"
 MOUNT_CMD = f"sudo mount {META_DEVICE} mnt"

@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
     flash_type = prompt_input(
         "Please enter the flash type (e.g., TLC, QLC): ",
-        default="QLC",
+        default="TLC",
         convert_fn=str,
         type_name="string",
     )
@@ -316,7 +316,7 @@ if __name__ == "__main__":
     print(f"[Physical Data Size] {physical_data_size}")
 
     if logical_meta_size % zone_size:
-        logical_meta_size = ceildiv(logical_meta_size, zone_size)
+        logical_meta_size = zone_size * ceildiv(logical_meta_size, zone_size)
         print(f"[WARN] logical_meta_size should be {logical_meta_size}")
 
     physical_meta_size_withop = logical_meta_size * (1 + meta_op)

@@ -24,10 +24,10 @@
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 #define NVMEV_CONZONE_L2P_DEBUG_VERBOSE(                                                           \
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_GC_DEBUG(string,                                                             \
-							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_GC_DEBUG_VERBOSE(                                                            \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_GC_DEBUG(string, args...)                                                    \
+	printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_GC_DEBUG_VERBOSE(string, args...)                                            \
+	printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 #define NVMEV_CONZONE_PRINT_BW(string,                                                             \
 							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 
@@ -211,6 +211,11 @@ struct zms_ftl {
 	int device_full;
 	int pslc_full;
 	int pending_for_migrating;
+
+	// GC
+	uint64_t *gc_agg_lpns;
+	int gc_agg_len;
+	int gc_agg_ttlpns;
 
 	// Migration
 	int num_aggs;

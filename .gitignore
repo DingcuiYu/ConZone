@@ -24,6 +24,8 @@ Mobibench/
 mnt/
 private_scripts/
 f2fs_stat/
+perf_stat/
+perf.data*
 
 # === Git ===
 *.orig

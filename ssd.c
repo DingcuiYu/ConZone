@@ -189,7 +189,7 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 		spp->nchs, spp->luns_per_ch, spp->pls_per_lun, spp->blks_per_pl, spp->pgs_per_blk);
 	NVMEV_INFO("[Logical Page Size] %d KiB [Flash Page Size] %d KiB [Oneshot Page Size] %d KiB\n",
 			   BYTE_TO_KB(spp->pgsz), BYTE_TO_KB(FLASH_PAGE_SIZE), BYTE_TO_KB(ONESHOT_PAGE_SIZE));
-
+	NVMEV_INFO("[pgs_per_oneshotpg] %lld\n", spp->pgs_per_oneshotpg);
 	spp->write_unit_size = WRITE_UNIT_SIZE;
 
 #if (BASE_SSD == CONZONE_PROTOTYPE)
@@ -313,6 +313,7 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 			   BYTE_TO_MB(spp->pslc_blksz) * spp->meta_pslc_blks * spp->luns_per_ch * spp->nchs);
 	NVMEV_INFO("[Logical Pages per pSLC Block] %u [Logical Pages per pSLC Line] %lu",
 			   spp->pslc_pgs_per_blk, spp->pslc_pgs_per_line);
+	NVMEV_INFO("[pslc_pgs_per_oneshotpg] %lld\n", spp->pslc_pgs_per_oneshotpg);
 #endif
 
 	check_params(spp);

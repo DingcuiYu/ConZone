@@ -715,6 +715,10 @@ struct zms_line *get_next_free_line(struct zms_ftl *zms_ftl, int location)
 	if (!curline) {
 		NVMEV_ERROR("ns %d No free line left in %s VIRT !!!!\n", zms_ftl->zp.ns->id,
 					location == LOC_PSLC ? "pslc" : "normal");
+		NVMEV_ERROR("[pSLC] write credit: %ld, credits to refill %ld\n",
+					zms_ftl->pslc_wfc.write_credits, zms_ftl->pslc_wfc.credits_to_refill);
+		NVMEV_ERROR("[Normal] write credit: %ld, credits to refill %ld\n",
+					zms_ftl->wfc.write_credits, zms_ftl->wfc.credits_to_refill);
 		print_lines(zms_ftl);
 		if (location == LOC_PSLC) {
 			if (zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_ZONED) {
@@ -871,6 +875,11 @@ static void zms_realize_ftl(struct zms_ftl *zms_ftl)
 
 	__init_rmap(zms_ftl);
 
+	// for unaligned writes in GC for regular flash
+	zms_ftl->gc_agg_len = 0;
+	zms_ftl->gc_agg_ttlpns = ssd->sp.pgs_per_oneshotpg;
+	zms_ftl->gc_agg_lpns = kmalloc(sizeof(uint64_t) * zms_ftl->gc_agg_ttlpns, GFP_KERNEL);
+	NVMEV_INFO("[GC Agg Buffer Size] %lld lpns\n", zms_ftl->gc_agg_ttlpns);
 	// for pSLC->QLC migration in zoned device
 	zms_ftl->num_aggs = 1;
 	if (zms_ftl->zp.ns_type == SSD_TYPE_CONZONE_ZONED) {
