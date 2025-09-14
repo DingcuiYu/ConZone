@@ -25,9 +25,9 @@
 #define NVMEV_CONZONE_L2P_DEBUG_VERBOSE(                                                           \
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 #define NVMEV_CONZONE_GC_DEBUG(string, args...)                                                    \
-	printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 #define NVMEV_CONZONE_GC_DEBUG_VERBOSE(string, args...)                                            \
-	printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 #define NVMEV_CONZONE_PRINT_BW(string,                                                             \
 							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 

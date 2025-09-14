@@ -19,15 +19,21 @@ DATA_DEVICE = "/dev/nvme2n2"
 ### TLC
 #### block insmod ./nvmev.ko memmap_start=82G memmap_size=74089M cpus=7,8
 #### zoned insmod ./nvmev.ko memmap_start=82G memmap_size=69961M cpus=7,8
-INSMOD_CMD = f"sudo insmod ./nvmev.ko memmap_start=82G memmap_size=69961M cpus=7,8"
 
-MKFS_DIR = "f2fs-tools-1.14.0/build/sbin"
-MKFS_CMD = f"sudo ./mkfs.f2fs -f -m -c {DATA_DEVICE} {META_DEVICE}"
+### QLC
+#### block insmod ./nvmev.ko memmap_start=82G memmap_size=75393M cpus=7,8
+#### zoned insmod ./nvmev.ko memmap_start=82G memmap_size=71425M cpus=7,8
+INSMOD_CMD = f"sudo insmod ./nvmev.ko memmap_start=82G memmap_size=75393M cpus=7,8"
+
+# MKFS_DIR = "f2fs-tools-1.14.0/build/sbin"
+MKFS_DIR = "/home/lab/mnt/home/lab/ydc/f2fs-tools-1.15.0/mkfs"
+MKFS_CMD = f"sudo ./mkfs.f2fs -f -m {DATA_DEVICE}"
+# MKFS_CMD = f"sudo ./mkfs.f2fs -f -c {DATA_DEVICE} {META_DEVICE}"
 # block sudo ./mkfs.f2fs -f -c /dev/nvme2n2 /dev/nvme2n1
 # zone sudo ./mkfs.f2fs -f -m -c /dev/nvme2n2 /dev/nvme2n1
 
 # MOUNT_CMD = "mount -o age_extent_cache,discard /dev/nvme2n1 mnt"
-MOUNT_CMD = f"sudo mount {META_DEVICE} mnt"
+MOUNT_CMD = f"sudo mount {DATA_DEVICE} mnt"
 
 
 def prepare():

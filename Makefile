@@ -5,7 +5,7 @@ INSTALL_MOD_PATH :=
 include Makefile.local
 
 default:
-		$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+		$(MAKE) -C $(KERNELDIR) M=$(PWD) modules EXTRA_CFLAGS="-std=gnu11"
 
 install:
 		$(MAKE) INSTALL_MOD_PATH="$(INSTALL_MOD_PATH)" -C $(KERNELDIR) modules_install

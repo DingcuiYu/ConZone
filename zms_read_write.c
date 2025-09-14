@@ -1242,7 +1242,7 @@ static inline void consume_write_credit(struct zms_ftl *zms_ftl, bool pSLC)
 	}
 }
 
-static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int loc)
+static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int loc, int io_type)
 {
 	int granularity = get_mapping_granularity(zms_ftl, loc);
 	struct ppa ppa = get_prev_ppa(zms_ftl, lpn, granularity);
@@ -1254,6 +1254,10 @@ static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int
 		// maybe last page is in qlc and the new page should be written to slc
 		NVMEV_INFO("check location type should be %d\n", loc);
 		print_ppa(ppa);
+		uint64_t badlpn = get_rmap_ent(zms_ftl, &ppa);
+		NVMEV_INFO("rmap: badlpn %lld current lpn %lld\n", badlpn, lpn);
+		int agg_idx = get_aggidx(zms_ftl, lpn);
+		print_agg(zms_ftl, zms_ftl->zone_agg_pgs[agg_idx], zms_ftl->zone_agg_lpns[agg_idx]);
 		return FAILURE;
 	}
 
@@ -1283,7 +1287,7 @@ static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int
 
 	struct zms_line *current_line = get_line(zms_ftl, &ppa);
 	if (current_line->vpc + current_line->ipc == current_line->pgs_per_line &&
-		current_line->rpc == 0 && loc == LOC_PSLC) {
+		current_line->rpc == 0 && loc == LOC_PSLC && io_type == USER_IO) {
 		zms_ftl->line_write_cnt++;
 		current_line->mid.write_order = zms_ftl->line_write_cnt;
 		pqueue_insert(zms_ftl->migrating_line_pq, &current_line->mid);
@@ -1309,7 +1313,7 @@ static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int
 
 static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int loc, int io_type)
 {
-	if (update_mapping_if_reserved(zms_ftl, lpn, loc) != SUCCESS) {
+	if (update_mapping_if_reserved(zms_ftl, lpn, loc, io_type) != SUCCESS) {
 		int granularity = get_mapping_granularity(zms_ftl, loc);
 		int pgs = get_pages_per_granularity(zms_ftl, granularity);
 		uint64_t slpn = get_granularity_start_lpn(zms_ftl, lpn, granularity);
@@ -1367,7 +1371,7 @@ static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int
 				set_map_gran(zms_ftl, PAGE_MAP, slpn + i);
 
 				if (current_line->vpc + current_line->ipc == current_line->pgs_per_line &&
-					current_line->rpc == 0 && loc == LOC_PSLC) {
+					current_line->rpc == 0 && loc == LOC_PSLC && io_type == USER_IO) {
 					zms_ftl->line_write_cnt++;
 					current_line->mid.write_order = zms_ftl->line_write_cnt;
 					pqueue_insert(zms_ftl->migrating_line_pq, &current_line->mid);
@@ -1675,6 +1679,21 @@ static void submit_internal_write(struct zms_ftl *zms_ftl, struct zms_line *line
 							"Migrated LPNs should be continuous!! lpn %lld slpn %lld elpn %lld\n",
 							lpn, agg_lpns[0], agg_lpns[agg_len - 1]);
 						print_agg(zms_ftl, agg_len, agg_lpns);
+						if (lpn > agg_lpns[agg_len - 1] + 1) {
+							NVMEV_INFO("----gap----\n");
+							for (uint64_t idx = agg_lpns[agg_len - 1] + 1; idx < lpn; idx++) {
+								struct ppa ippa = get_maptbl_ent(zms_ftl, idx);
+								if (mapped_ppa(&ippa)) {
+									NVMEV_INFO("lpn %lld -> ch %d lun %d pl %d blk %d pg %d\n", idx,
+											   ippa.zms.ch, ippa.zms.lun, ippa.zms.pl, ippa.zms.blk,
+											   ippa.zms.pg);
+								} else {
+									NVMEV_INFO("lpn %lld -> UNMAPPED PPA\n", idx);
+								}
+							}
+						}
+						NVMEV_INFO("lpn %lld -> ch %d lun %d pl %d blk %d pg %d\n", lpn, ppa.zms.ch,
+								   ppa.zms.lun, ppa.zms.pl, ppa.zms.blk, ppa.zms.pg);
 						NVMEV_ASSERT(0);
 					}
 
@@ -1976,7 +1995,8 @@ static void foreground_gc(struct zms_ftl *zms_ftl, int location)
 
 		do_gc(zms_ftl, true, location);
 		if (zms_ftl->zp.ns_type != SSD_TYPE_CONZONE_META) {
-			NVMEV_INFO("credits_to_refill after GC for %d: %d\n", wfc->credits_to_refill, location);
+			NVMEV_INFO("credits_to_refill after GC for %ld: %ld\n", wfc->credits_to_refill,
+					   location);
 		}
 	} else {
 		wfc->credits_to_refill =
@@ -2317,7 +2337,9 @@ uint64_t buffer_flush(struct zms_ftl *zms_ftl, struct buffer *write_buffer, uint
 				}
 				nsecs_latest = max(nsecs_latest, complete_time);
 			}
-			zms_ftl->zone_agg_pgs[agg_idx] = agg_len;
+			if (SLC_BYPASS && zms_ftl->zp.ns_type != SSD_TYPE_CONZONE_META && loc == LOC_PSLC) {
+				zms_ftl->zone_agg_pgs[agg_idx] = agg_len;
+			}
 		}
 
 		if (zms_ftl->device_full || zms_ftl->pslc_full) {

@@ -209,7 +209,7 @@ if __name__ == "__main__":
 
     flash_type = prompt_input(
         "Please enter the flash type (e.g., TLC, QLC): ",
-        default="TLC",
+        default="QLC",
         convert_fn=str,
         type_name="string",
     )

@@ -266,9 +266,9 @@ static_assert(NR_NAMESPACES <= 2);
 //  64GiB ZONED MB(1728ULL)      BLOCK MB(1248ULL)
 //  4GiB ZONED MB(864ULL) BLOCK MB(384ULL)
 // QLC
-//  64GiB ZONED: MB(640ULL) BLOCK MB(512ULL)
+//  64GiB ZONED: MB(2304ULL) BLOCK MB(1664ULL)
 //  4GiB ZONED: MB(1152ULL) BLOCK MB(512ULL)
-#define PHYSICAL_META_SIZE MB(1728ULL)
+#define PHYSICAL_META_SIZE MB(2304ULL)
 
 //  64GiB ZONED: MB(512ULL) BLOCK: MB(376ULL)
 //  4GiB ZONED: 256ULL BLOCK: MB(40ULL)
@@ -282,9 +282,9 @@ static_assert(NR_NAMESPACES <= 2);
 // The maximum queue depth for consumer-grade devices is typically 32 (or 64) (MQES+1)
 #define MQES (31)
 
-#define CELL_MODE (CELL_MODE_TLC)
+#define CELL_MODE (CELL_MODE_QLC)
 
-#define SLC_BYPASS (1)
+#define SLC_BYPASS (0)
 static_assert(!SLC_BYPASS || (CELL_MODE != CELL_MODE_QLC));
 
 #define NORMAL_ONLY (0)
@@ -305,7 +305,7 @@ static_assert(!(NORMAL_ONLY && !SLC_BYPASS));
 static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 
 #define BLKS_PER_PLN 0	   /* BLK_SIZE should not be 0 */
-#define BLK_SIZE MB(24ULL) // TLC - MB(24ULL), QLC ~ 48MB(32MB, to make it be po2) MB(32ULL)
+#define BLK_SIZE MB(32ULL) // TLC - MB(24ULL), QLC ~ 48MB(32MB, to make it be po2) MB(32ULL)
 static_assert(BLK_SIZE || BLKS_PER_PLN);
 static_assert(((BLK_SIZE * PLNS_PER_LUN) % ONESHOT_PAGE_SIZE) == 0);
 
