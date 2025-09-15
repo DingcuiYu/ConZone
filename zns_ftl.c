@@ -415,8 +415,8 @@ static void zms_init_params(struct znsparams *zpp, uint64_t physical_size, struc
 		zpp->zone_capacity = ZONE_SIZE;
 		zpp->zone_size = (1 << (Log2(zpp->zone_capacity)));
 		zpp->nr_zones = zpp->logical_size / zpp->zone_size;
-		zpp->nr_active_zones = zpp->nr_zones; // max
-		zpp->nr_open_zones = zpp->nr_zones;	  // max
+		zpp->nr_active_zones = 7; // zpp->nr_zones; // max
+		zpp->nr_open_zones = 7;	  // zpp->nr_zones;	  // max
 		zpp->dies_per_zone = DIES_PER_ZONE;
 		zpp->chunk_size = CHUNK_SIZE;
 		zpp->pgs_per_chunk = CHUNK_SIZE / PG_SIZE;

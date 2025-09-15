@@ -2109,28 +2109,29 @@ static struct buffer *__zms_wb_get(struct zms_ftl *zms_ftl, uint64_t slpn)
 						size_t max_flush_data = zms_ftl->write_buffer[0].flush_data;
 						int wid = 0;
 
-						if (!SLC_BYPASS) {
-							NVMEV_INFO("MAX OPEN ZONES >= %d? zid = %d\n", zms_ftl->zp.nr_wb, zid);
-						}
+						// if (!SLC_BYPASS) {
+						// 	NVMEV_INFO("MAX OPEN ZONES >= %d? zid = %d slpn = %lld\n",
+						// 			   zms_ftl->zp.nr_wb, zid, slpn);
+						// }
 						for (int i = 0; i < zms_ftl->zp.nr_wb; i++) {
-							if (!SLC_BYPASS) {
-								NVMEV_INFO("write buffer %d zid %d flushing %d flush data %ld pgs "
-										   "%lld slpn "
-										   "%lld \n",
-										   i, zms_ftl->write_buffer[i].zid,
-										   zms_ftl->write_buffer[i].flushing,
-										   zms_ftl->write_buffer[i].flush_data,
-										   zms_ftl->write_buffer[i].pgs,
-										   zms_ftl->write_buffer[i].lpns[0]);
-							}
+							// if (!SLC_BYPASS) {
+							// 	NVMEV_INFO("write buffer %d zid %d flushing %d flush data %ld pgs "
+							// 			   "%lld slpn "
+							// 			   "%lld \n",
+							// 			   i, zms_ftl->write_buffer[i].zid,
+							// 			   zms_ftl->write_buffer[i].flushing,
+							// 			   zms_ftl->write_buffer[i].flush_data,
+							// 			   zms_ftl->write_buffer[i].pgs,
+							// 			   zms_ftl->write_buffer[i].lpns[0]);
+							// }
 							if (max_flush_data < zms_ftl->write_buffer[i].flush_data) {
 								max_flush_data = zms_ftl->write_buffer[i].flush_data;
 								wid = i;
 							}
 						}
-						if (!SLC_BYPASS) {
-							NVMEV_INFO("Choose write buffer %d \n", wid);
-						}
+						// if (!SLC_BYPASS) {
+						// 	NVMEV_INFO("Choose write buffer %d \n", wid);
+						// }
 						write_buffer = &zms_ftl->write_buffer[wid];
 					}
 				}
@@ -2453,12 +2454,14 @@ static bool handle_write_request(struct zms_ftl *zms_ftl, struct nvmev_request *
 		zms_ftl->last_nlb = nr_lba;
 		zms_ftl->last_slba = slba;
 		zms_ftl->last_stime = nsecs_start;
+		NVMEV_INFO("write to zid %d\n", zid);
+		print_writebuffer_info(zms_ftl);
 	}
 
 	if (__zms_wb_check(zms_ftl, write_buffer, slpn) != SUCCESS) {
 		if (!write_buffer->flushing) {
 			// should flush
-			// NVMEV_INFO("[w] ZONE SWITCHING %d -> %d\n", write_buffer->zid, zid);
+			NVMEV_INFO("[w] ZONE SWITCHING %d -> %d\n", write_buffer->zid, zid);
 			// print_writebuffer(zms_ftl, write_buffer);
 			// print_writebuffer_info(zms_ftl);
 			nsecs_latest = buffer_flush(zms_ftl, write_buffer, nsecs_start);
