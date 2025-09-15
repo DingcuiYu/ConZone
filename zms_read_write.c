@@ -2454,14 +2454,14 @@ static bool handle_write_request(struct zms_ftl *zms_ftl, struct nvmev_request *
 		zms_ftl->last_nlb = nr_lba;
 		zms_ftl->last_slba = slba;
 		zms_ftl->last_stime = nsecs_start;
-		NVMEV_INFO("write to zid %d\n", zid);
-		print_writebuffer_info(zms_ftl);
+		// NVMEV_INFO("write to zid %d\n", zid);
+		// print_writebuffer_info(zms_ftl);
 	}
 
 	if (__zms_wb_check(zms_ftl, write_buffer, slpn) != SUCCESS) {
 		if (!write_buffer->flushing) {
 			// should flush
-			NVMEV_INFO("[w] ZONE SWITCHING %d -> %d\n", write_buffer->zid, zid);
+			// NVMEV_INFO("[w] ZONE SWITCHING %d -> %d\n", write_buffer->zid, zid);
 			// print_writebuffer(zms_ftl, write_buffer);
 			// print_writebuffer_info(zms_ftl);
 			nsecs_latest = buffer_flush(zms_ftl, write_buffer, nsecs_start);
