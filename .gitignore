@@ -26,6 +26,7 @@ private_scripts/
 f2fs_stat/
 perf_stat/
 perf.data*
+fio_results/
 
 # === Git ===
 *.orig

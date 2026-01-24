@@ -17,22 +17,24 @@ Please feel free to contact us at [dingcuiy@gamil.com] if you have any questions
 
 ### Kernel Version and Environment
 
-* **Requirement:** v6.10 and above (Recommended: v6.12.16)
-* **My Environment:** Ubuntu 22.04.5 LTS (6.12.16)
-* **Note:** If you use a lower kernel version, the Kernel Code/Data might occupy the reserved space. For the reason, please see https://github.com/snu-csl/nvmevirt/issues/60#issuecomment-2687864955.
+* **Requirement:** Linux Kernel v6.x and above (Recommended: v6.12.16 or any other stable version)
+* **My Environment:** Ubuntu 22.04.5 LTS (Kernel 6.12.16)
+* **Note:** If you use another kernel version, the Kernel Code/Data might occupy the reserved space. For the reason, please see https://github.com/snu-csl/nvmevirt/issues/60#issuecomment-2687864955.
 
 ---
 ### Modifying Grub Boot Options
 Edit the `GRUB_CMDLINE_LINUX` in `/etc/default/grub`. Separate multiple options with a space.
 
 #### 1. Reserve Physical Memory
-NVMeVirt is a DRAM-based emulator and requires a certain amount of physical memory to be reserved. The reserved size is the size of the storage device.
+NVMeVirt is a DRAM-based emulator that requires reserving a certain amount of physical memory. The reserved size corresponds to the storage device's capacity plus overhead.
 
-For example, if the server is equiped with about 160GiB of physical memory and I want to emulate a 64GiB flash storage, I can use:
+For example, if your server has 160GiB of physical memory and you want to emulate a 64GiB flash storage device, you might  reserve 79GiB (64GiB + SLC buffer overhead) and the start address is 82 GiB.
+
+Add the following to your GRUB config:
 
 `GRUB_CMDLINE_LINUX="memmap=79G\\\$82G"`
 
-Here, a total of 79GiB of memory is reserved because of the user-invisible SLC area.
+(Note: memmap=nnG$ssG reserves nn GB of memory starting at address ss GB. The backslash \ is often required to escape the $ in certain config environments, verify based on your distribution.)
 
 **P.S.** After updating the grub and rebooting, you can verify if the reservation was successful by checking the current contiguous memory layout with `sudo cat /proc/iomem`.
 
@@ -89,66 +91,75 @@ warning: the compiler differs from the one used to build the kernel
 make[1]: Leaving directory '/home/lab/mnt/home/lab/ydc/linux/zonelinux-6.12.16'
 ```
 ---
-### Determine the Command and Launch the Emulator
-Since ConZone's flash storage includes user-invisible SLC buffers, emulating a 64GiB SSD requires `64 GiB + [size of SLC buffer] + 1 MiB of memory`. The 1 MiB is for the ZNS SSD emulation in NVMeVirt.
+### Configuration and Initialization
+Since ConZone's flash storage includes an invisible SLC buffer, simulating a 64GiB SSD requires 64GiB + [SLC buffer size] + 1 MiB of memory.
 
-To simplify this, ConZone provides a script, `scripts/size.py`, to help you calculate the sizes.
+#### Step 1: Calculate Parameters
 
-**Usage**
+Use the provided script to calculate sizes and generate the insmod command:
+
 ```Bash
 python3 scripts/size.py
 ```
 
-This will present you with some interactive options. If the default value is suitable, simply press Enter. Note that the options are case-sensitive.
+Follow the interactive prompts to modify `ssd_config.h`.
 
-**It is crucial to ensure that the values you enter here match the settings in `ssd_config.h`.**
+Configuration Option Reference:
 
-Here is the meaning of each option:
-
-| Prompt | Corresponding `ssd_config.h` Option  that after`#elif (BASE_SSD == CONZONE_PROTOTYPE)`| Meaning or Influence |
+|  Prompt |  Corresponding to the option following ``#elif (BASE_SSD == CONZONE_PROTOTYPE)` ` `in `ssd_config.h`` |  Meaning or Effect |
 | --- | --- | --- |
-| Please enter the prototype of the emulator (conzone or zns):  [default: conzone]:  | None. Corresponds to `# Select one of the targets to build` in `Kbuild`. `CONFIG_NVMEVIRT_CONZONE := y` for conzone; `CONFIG_NVMEVIRT_ZNS := y` for zns. | Influences the minimum SLC buffer size. ZNS is a single-medium type with no SLC buffer; conzone currently defaults to at least 4 SLC superblocks. |
-| Please enter the start address of memmap (e.g., 82G):  [default: 82G]:  | None. Corresponds to the starting address of the reserved memory in `/etc/default/grub`. For example, in `GRUB_CMDLINE_LINUX="memmap=79G\\\$82G isolcpus=7,8"`, the start address is 82G. | NVMeVirt needs this to locate the memory for emulation. |
-| Please enter the flash type (e.g., TLC, QLC):  [default: QLC]:  | `CELL_MODE` :<br>`CELL_MODE_TLC `: TLC<br>`CELL_MODE_QLC` : QLC | Influences the flash block size, zone size, and zone capacity. Under the ZNS protocol, zone sizes must be powers of 2, a constraint that TLC might violate. |
-| Please enter the interface type (e.g., block, zoned):  [default: zoned]:  | `NS_SSD_TYPE_1 `:<br>`SSD_TYPE_CONZONE_BLOCK` : block<br>`SSD_TYPE_CONZONE_ZONED` : zone | Defines the interface type for the data area; the block interface is useful for comparison. |
-| Please enter blcok size (e.g., 2M, 32M):  [default: 32M]:  | `BLK_SIZE` ：<br>`MB(24ULL)` : default size of TLC<br>`MB(32ULL)` : default size of QLC | Flash block size. |
-| Please enter the number of dies per superblock: [default: 4] | `DIES_PER_ZONE `: Determined by `NAND_CHANNELS` and `LUNS_PER_NAND_CH`, which defaults to 4. | Determines the zone capacity.|
-| Please enter the number of pSLC superblocks for data area: [default: 28]: | `DATA_pSLC_INIT_BLKS` ：Defaults to 28, which has no special meaning. | Sets the number of SLC superblocks for the data area (namespace 1). Note that the size of an SLC superblock is 1/3 the size of a TLC superblock and 1/4 the size of a QLC superblock. |
-| Please enter the size of data namespace (e.g., 4G):  [default: 4G]: | None. | The user-visible storage size. |
-| Please enter the size of meta namespace (e.g., 256M, 40M):  [default: 256M]: | `LOGICAL_META_SIZE` ：An empirical value; see below for how to adjust it.<br>Here are some reference values from my practice:<br>For 4GiB storage, 256MiB for zoned interface, 40MiB for block interface.<br>For 64GiB storage, 512MiB for zoned interface, 376MiB for block interface. | The logical space size for the metadata area, ensuring namespace 0 is exactly the metadata area for F2FS during formatting. |
-| Enter the OP ratio for meta area [default: 0.07]: | `OP_AREA_PERCENT` ：Based on NVMeVirt's default of 0.07. | The over-provisioning space for the metadata area and the data area (when using a block interface). It ensures the reserved space is at least 7% of the visible space in the default case. |
+|  Select prototype (conzone/zns) [default: conzone]: |  None. Corresponds to the `Kbuild` directive `: # Select one of the targets to build`,
+ `CONFIG_NVMEVIRT_CONZONE := y` for conzone;
+ `CONFIG_NVMEVIRT_ZNS := y` for zns |  Use storage prototype |
+|  Memmap start address [default: 102G]: |  None. Corresponds to the starting address of reserved memory in `/etc/default/grub`. For example, if ` `GRUB_CMDLINE_LINUX="memmap=79G\\\$82G isolcpus=7,8"` `, the starting address is 82G |  NVMeVirt requires determining the memory location for simulation. The script automatically reads `/etc/default/grub` to obtain the default value |
+|  Flash type (TLC/QLC) [default: TLC]:  | `CELL_MODE`:
+ `CELL_MODE_TLC`: TLC
+ `CELL_MODE_QLC`: QLC
+ |  Affects flash block size, zone size, and zone capacity.
+The ZNS protocol prohibits zone sizes that are not powers of 2. Using TLC may cause block sizes to violate this constraint. |
+|  Interface type (block/zoned) [default: zoned]:  | `NS_SSD_TYPE_1`:
+ `SSD_TYPE_CONZONE_BLOCK`: block
+ `SSD_TYPE_CONZONE_ZONED`: zone |  Interface type for the data area. Setting block interface enables comparison. |
+|  Block size [default: 33M]:  | `BLK_SIZE`:
+ `MB(24ULL)`: default size for TLC
+ `MB(32ULL)`: default size for QLC |  Flash block size |
+|  Planes per Superblock (Parallelism) [default: 16]: | `PLNS_PER_ZONE` : i.e., `DIES_PER_ZONE` * `PLNS_PER_LUN` |  Determines zone capacity |
+|  pSLC superblocks for data [default: 4]:  | `DATA_pSLC_INIT_BLKS`  |  Number of superblocks for SLC buffers in namespace 1 (data zone). Note that the SLC superblock size is 1/3 that of TLC superblocks and 1/4 that of QLC superblocks. |
+|  Data namespace size [default: 32G]:  |  None, must be entered manually |  Size of the user-visible disk (data zone) |
+|  Meta namespace size [default: 0K]:  | `LOGICAL_META_SIZE`: Enter 0 to automatically calculate the appropriate size and modify `ssd_config.h`  |  Logical space size of the metadata namespace. Note: Ensure that during formatting, namespace 0 precisely corresponds to the F2FS metadata namespace. |
+|  Meta OP ratio [default: 0.07]: | `OP_AREA_PERCENT`: Automatically calculates `PHYSICAL_META_SIZE`  |  Reserves space for the metadata area and the data area after using the block interface. Ensure reserved space ≥ 7% of visible space. |
 
-Here is the meaning of each output:
+#### Step 2: Load the Module
+The script will output a summary and an insmod command at the end, for example:
+```toml
+----------------------------------
+Summary:
+  Prototype: conzone
+  Flash: TLC | Interface: zoned
+  Super Block: 528M
+  Meta Size: 2G Phy Meta Size: 7392M
 
-| Output | Corresponding `ssd_config.h` Option after `#elif (BASE_SSD == CONZONE_PROTOTYPE)`| Meaning or Influence |
-| --- | --- | --- |
-| [Zone Size] | `ZONE_SIZE` : Usually doesn't need to be changed; it is `BLK_SIZE * DIES_PER_ZONE`. | The size of a zone. |
-| [Super Block Size] | 	None. | The superblock size is usually the same as the Zone Size. |
-| [pSLC Flash Block Size] | 	None. | The size of a "Regular" flash block when used for SLC. |
-| [pSLC Flash Block Capacity] | None. | The actual usable space after programming a "Regular" flash block as SLC. |
-| [Physical Data Size] | 	None.  | 用The user-visible space plus the space occupied by "Regular" flash blocks used for SLC.|
-| [Physical Meta Size] | `PHYSICAL_META_SIZE`  | Ensures block alignment and OP requirements are met. It's the size of the "Regular" flash blocks occupied by the meta namespace (since the meta namespace uses SLC, the actual usable physical space is also reduced). |
-| Insmod Command |  | The command for launching. |
-| [WARN] physical_data_size should be 4104M |  | A warning that the actual user-visible physical space might differ due to block size alignment. |
-
-If you modify `ssd_config.h`, you must recompile:
-
-```bash
-make -j `nproc`
-
+Insmod Command:
+sudo insmod ./nvmev.ko memmap_start=102G memmap_size=44881M cpus=37,39
 ```
+You will need to paste it into the `INSMOD_CMD` variable in `scripts/mount.py`.
 
-`ssd_config.h` has an `SLC_BYPASS` variable, which lets you choose whether to bypass the SLC buffer.
+### Mounting the Device
+Open scripts/mount.py and perform the following:
 
-* TLC: Usually set `SLC_BYPASS` to 1 (bypass).
+1. Paste the `insmod` command into `INSMOD_CMD`.
 
-* QLC: Must set `SLC_BYPASS` to 0 (do not bypass).
+2. Modify `WORK_DIR` to your absolute directory path.
 
-Then, run the provided command. 
+3. If formatting is needed, adjust `MKFS_CMD` according to your interface (zoned vs block).
 
-```bash
-# With all default values
-sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8833M cpus=7,8
+**Option A: Test Bare Disk (Raw Device)**
+```Bash
+sudo python3 scripts/mount.py rawdevice
+```
+**Option B: Mount with Filesystem**
+```Bash
+sudo python3 scripts/mount.py
 ```
 
 If successful, the command will complete silently. You can then use `lsblk` to see the emulated storage:
@@ -158,8 +169,27 @@ nvme2n1                   259:9    0   256M  0 disk
 nvme2n2                   259:10   0     4G  0 disk 
 ```
 
-I have added some startup output information that you can view with `sudo dmesg`, for example:
+Logs: You can check boot logs in `log/insmod_dmesg`, format logs in `log/mkfs_dmesg`, and mount logs in `log/mount_dmesg`.
 
+### Testing and Benchmarking
+You can now test performance using FIO, Mobibench, or other standard tools.
+* Batch Testing: A helper script is available at `scripts/exp.py`.
+* Mobibench: Source code is included in the repository.
+
+### Umounting
+If you tested a bare disk:
+```bash
+sudo python3 scripts/umount.py rawdevice
+```
+If you tested with a filesystem:
+```bash
+sudo python3 scripts/umount.py
+```
+### Viewing Statistics
+After unmounting/removing the module, statistics are dumped to the kernel log. View them in `log/rmmod_dmesg`.
+
+### Example Logs
+#### insmod_dmesg
 ```bash
 [2707784.596989] NVMeVirt: Version 1.10 for >> CONZONE SSD Prototype <<
 [2707784.597005] NVMeVirt: Storage: 0x1480100000-0x16a8100000 (8832 MiB)
@@ -238,20 +268,7 @@ I have added some startup output information that you can view with `sudo dmesg`
 [2707784.793018] NVMeVirt: Virtual NVMe device created
 ```
 
-### Formatting to F2FS
-
-ConZone's code includes modified `mkfs.tool` source to help you determine the logical size of namespace 0.
-
-If you are unsure how much space to allocate for metadata, you can first assume it is twice the size of your zone. Then, run the following command with `sudo`:
-
-```bash
- sudo ./f2fs-tools-1.14.0/build/sbin/mkfs.f2fs -f -m -c /dev/nvme2n2 /dev/nvme2n1
-```
-
-P.S. The `-m` parameter is not needed for formatting a block interface SSD.
-
-The output will look something like this:
-
+#### mkfs_dmesg
 ```bash
         F2FS-tools: mkfs.f2fs Ver: 1.14.0 (2020-08-24)
 
@@ -273,41 +290,17 @@ Info: zone aligned segment0 blkaddr: 32768
         [MISAO] Info: main blkaddr 65536
 ```
 
-You can see that “main blkaddr” and the starting position of “device 1“ are the same, which means it was successful.
-
-If the size you set is too large, reduce `LOGICAL_META_SIZE` by one zone. If it's too small, increase it by one zone. Keep adjusting until it is correct.
-
-Note: After adjusting, you must rerun `scripts/size.py`, check if other parameters have changed, recompile, run with the generated command, and then reformat with the tool.
-
-### Mounting
-
-Mount the meta namespace disk.
-
+#### mount_dmesg
 ```bash
-# mnt is my custom mount directory
-sudo mount /dev/nvme2n1 mnt
+[  730.483157] NVMeVirt: Init slc wp for USER IO, line id 0 blk id 0
+[  730.573318] NVMeVirt: Init slc wp for USER IO, line id 0 blk id 7
+[  730.583731] F2FS-fs (nvme2n1): Mount Device [ 0]:         /dev/nvme2n1,      512,        0 -    7ffff
+[  730.583759] F2FS-fs (nvme2n1): Mount Device [ 1]:         /dev/nvme2n2,    16384,    80000 -   87ffff (zone: Host-managed)
+[  730.588474] F2FS-fs (nvme2n1): Found nat_bits in checkpoint
+[  730.708448] F2FS-fs (nvme2n1): Mounted with checkpoint version = 2b7a1171
+
 ```
-
-### Test and Analysis
-
-Now, you can test its performance using tools like FIO, Mobibench, or others, just like any regular disk.
-
-For batch testing, I've created the `exp.py` script (for a complete batch test), `mount.py` and `umount.py` scripts (for individual mount/unmount operations, useful for single tests) in the `scripts/` directory. Remember to modify `WORK_DIR` and `INSMOD_CMD` in these scripts.
-
-(P.S. I have also included the Mobibench source code in the repository, which may be helpful!)
-
-
-### Unmounting
-
-```bash
-sudo umount mnt
-sudo rmmod nvmev
-```
-
-### Viewing Statistics
-
-I have added some potentially useful statistics that you can view with `sudo dmesg`, for example:
-
+#### rmmod_dmesg
 ```bash
 [2709034.940583] NVMeVirt: -------------MISAO SSD statistic info-----------
 [2709034.940593] NVMeVirt: [Channel 0 Lun 0] [Max CMD Queue Depth] 4
@@ -342,7 +335,6 @@ I have added some potentially useful statistics that you can view with `sudo dme
 [2709035.120860] NVMeVirt: [# of inplace update] 0
 [2709035.144637] NVMeVirt: Virtual NVMe device closed
 ```
-
 
 ## License
 

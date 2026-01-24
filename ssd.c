@@ -23,7 +23,7 @@ void buffer_init(struct buffer *buf, size_t size)
 	}
 	buf->pgs = 0;
 	buf->sqid = 0;
-	buf->flushing = false;
+	buf->busy = false;
 	buf->flush_data = 0;
 	buf->time = 0;
 }
@@ -34,30 +34,53 @@ uint32_t buffer_allocate(struct buffer *buf, size_t size)
 		cpu_relax();
 	}
 
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+	size = 0;
+	if (buf->busy == false) {
+		buf->busy = true;
+		size = 1;
+	}
+#else
 	if (buf->remaining < size) {
 		size = 0;
-#if (BASE_SSD == CONZONE_PROTOTYPE)
-		size = buf->remaining;
-#endif
+		// #if (BASE_SSD == CONZONE_PROTOTYPE)
+		// 		size = buf->remaining;
+		// #endif
 	}
 
 	buf->remaining -= size;
-
+#endif
 	spin_unlock(&buf->lock);
 	return size;
 }
+
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+bool is_buffer_busy(struct buffer *buf)
+{
+	bool busy;
+	while (!spin_trylock(&buf->lock)) {
+		cpu_relax();
+	}
+	busy = buf->busy;
+	spin_unlock(&buf->lock);
+	return busy;
+}
+#endif
 
 bool buffer_release(struct buffer *buf, size_t size)
 {
 	while (!spin_trylock(&buf->lock))
 		;
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+	buf->busy = false;
+#else
 	buf->remaining += size;
 	if (buf->remaining >= buf->size) {
 		buf->remaining = buf->size;
 	}
 	// NVMEV_INFO("%s: release %ld KiB  remaining %ld
 	// KiB\n",__func__,BYTE_TO_KB(size),BYTE_TO_KB(buf->remaining));
-	buf->flushing = false;
+#endif
 	spin_unlock(&buf->lock);
 
 	return true;
@@ -129,6 +152,7 @@ static void check_params(struct ssdparams *spp)
 void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 {
 	uint64_t blk_size, total_size, meta_size;
+	uint64_t luns_per_line;
 
 	spp->secsz = LBA_SIZE;
 	spp->secs_per_pg = 4096 / LBA_SIZE; // pg == 4KB
@@ -147,7 +171,7 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 #if (BASE_SSD == CONZONE_PROTOTYPE)
 	spp->pslc_blks = pSLC_INIT_BLKS;
 	spp->meta_pslc_blks = META_pSLC_INIT_BLKS;
-	spp->meta_normal_blks = 0;
+	spp->meta_normal_blks = 0; // FIX: should be zero
 #endif
 
 	if (BLKS_PER_PLN > 0) {
@@ -284,13 +308,28 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 	spp->tt_pls = spp->pls_per_ch * spp->nchs;
 
 	spp->tt_luns = spp->luns_per_ch * spp->nchs;
+	spp->line_groups = 1;
 
-	/* line is special, put it at the end */
-	spp->blks_per_line = spp->tt_luns; /* TODO: to fix under multiplanes */
+	luns_per_line = spp->tt_luns;
+
+#ifdef DIES_PER_ZONE
+	luns_per_line = DIES_PER_ZONE;
+	spp->line_groups = spp->tt_luns / DIES_PER_ZONE;
+#endif
+/* line is special, put it at the end */
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+	spp->blks_per_line = luns_per_line * spp->pls_per_lun;
+#else
+	spp->blks_per_line = luns_per_line; /* TODO: to fix under multiplanes */
+#endif
 	spp->pgs_per_line = spp->blks_per_line * spp->pgs_per_blk;
 	spp->secs_per_line = spp->pgs_per_line * spp->secs_per_pg;
-	spp->tt_lines = spp->blks_per_lun;
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+	spp->tt_lines = spp->blks_per_pl * spp->line_groups;
+#else
+	spp->tt_lines = spp->blks_per_lun * spp->line_groups;
 	/* TODO: to fix under multiplanes */ // lun size is super-block(line) size
+#endif
 
 #if (BASE_SSD == CONZONE_PROTOTYPE)
 	spp->blksz = blk_size;
@@ -301,19 +340,20 @@ void ssd_init_params(struct ssdparams *spp, uint64_t capacity, uint32_t nparts)
 	spp->pslc_pgs_per_blk = DIV_ROUND_UP(spp->pslc_blksz, spp->pgsz);
 	spp->pslc_pgs_per_line = spp->blks_per_line * spp->pslc_pgs_per_blk;
 
-	NVMEV_INFO(
-		"[Total pSLC Superblocks] %u [Meta pSLC Superblocks] %u [Meta Normal Superblocks] %u\n",
-		spp->pslc_blks, spp->meta_pslc_blks, spp->meta_normal_blks);
-	NVMEV_INFO("[Total pSLC Size] %u MiB [Meta pSLC Size] %u MiB\n",
-			   BYTE_TO_MB(spp->blksz) * spp->pslc_blks * spp->luns_per_ch * spp->nchs,
-			   BYTE_TO_MB(spp->blksz) * spp->meta_pslc_blks * spp->luns_per_ch * spp->nchs);
+	NVMEV_INFO("[Total pSLC Superblocks] %llu [Meta pSLC Superblocks] %llu [Meta Normal "
+			   "Superblocks] %llu\n",
+			   spp->pslc_blks, spp->meta_pslc_blks, spp->meta_normal_blks);
+	NVMEV_INFO("[Total pSLC Size] %llu MiB [Meta pSLC Size] %llu MiB\n",
+			   BYTE_TO_MB(spp->blksz) * spp->pslc_blks * spp->pls_per_lun * spp->luns_per_ch * spp->nchs,
+			   BYTE_TO_MB(spp->blksz) * spp->meta_pslc_blks * spp->pls_per_lun * spp->luns_per_ch * spp->nchs);
 
-	NVMEV_INFO("[Total pSLC Capacity] %u MiB [Meta pSLC Capacity] %u MiB\n",
-			   BYTE_TO_MB(spp->pslc_blksz) * spp->pslc_blks * spp->luns_per_ch * spp->nchs,
-			   BYTE_TO_MB(spp->pslc_blksz) * spp->meta_pslc_blks * spp->luns_per_ch * spp->nchs);
-	NVMEV_INFO("[Logical Pages per pSLC Block] %u [Logical Pages per pSLC Line] %lu",
+	NVMEV_INFO("[Total pSLC Capacity] %llu MiB [Meta pSLC Capacity] %llu MiB\n",
+			   BYTE_TO_MB(spp->pslc_blksz) * spp->pslc_blks * spp->pls_per_lun * spp->luns_per_ch * spp->nchs,
+			   BYTE_TO_MB(spp->pslc_blksz) * spp->meta_pslc_blks * spp->pls_per_lun * spp->luns_per_ch * spp->nchs);
+	NVMEV_INFO("[Logical Pages per pSLC Block] %llu [Logical Pages per pSLC Line] %llu\n",
 			   spp->pslc_pgs_per_blk, spp->pslc_pgs_per_line);
-	NVMEV_INFO("[pslc_pgs_per_oneshotpg] %lld\n", spp->pslc_pgs_per_oneshotpg);
+	NVMEV_INFO("[pSLC Pages per Oneshotpg] %lld [pSLC Pages per Line] %lld \n", spp->pslc_pgs_per_oneshotpg, spp->pslc_pgs_per_line);
+	NVMEV_INFO("[Logical Pages per Line] %ld\n", spp->pgs_per_line);
 #endif
 
 	check_params(spp);
@@ -383,8 +423,20 @@ static void ssd_init_nand_plane(struct nand_plane *pl, struct ssdparams *spp)
 			pl->blk[i].nand_type = CELL_MODE;
 			pl->blk[i].used_pgs = spp->pgs_per_blk;
 		}
+#else
+		pl->blk[i].nand_type = spp->cell_mode;
+		pl->blk[i].used_pgs = spp->pgs_per_blk;
 #endif
 	}
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+	pl->next_pln_avail_time = 0;
+	INIT_LIST_HEAD(&pl->cmd_queue_head);
+	pl->migrating = false;
+	pl->migrating_etime = 0;
+	pl->cmd_queue_depth = 0;
+	pl->max_cmd_queue_depth = 0;
+	pl->busy = false;
+#endif
 }
 
 static void ssd_remove_nand_plane(struct nand_plane *pl)
@@ -491,6 +543,31 @@ void ssd_remove(struct ssd *ssd)
 	uint32_t i;
 	NVMEV_INFO("-------------MISAO SSD statistic info-----------\n");
 	struct ppa ppa;
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+	// 针对 CONZONE_PROTOTYPE，我们需要遍历 Plane 来清理队列
+	for (int ch = 0; ch < ssd->sp.nchs; ch++) {
+		for (int lun = 0; lun < ssd->sp.luns_per_ch; lun++) {
+			for (int pl = 0; pl < ssd->sp.pls_per_lun; pl++) {
+				ppa.ppa = 0;
+				ppa.zms.ch = ch;
+				ppa.zms.lun = lun;
+				ppa.zms.pl = pl;
+
+				struct nand_plane *plp = get_pl(ssd, &ppa);
+				NVMEV_INFO("[Channel %d Lun %d Plane %d] [Max CMD Queue Depth] %llu\n", ch, lun, pl,
+						   plp->max_cmd_queue_depth);
+
+				struct nand_cmd *cmd =
+					list_first_entry_or_null(&plp->cmd_queue_head, struct nand_cmd, entry);
+				while (cmd) {
+					list_del_init(&cmd->entry);
+					kfree(cmd);
+					cmd = list_first_entry_or_null(&plp->cmd_queue_head, struct nand_cmd, entry);
+				}
+			}
+		}
+	}
+#else
 	for (int ch = 0; ch < ssd->sp.nchs; ch++) {
 		for (int lun = 0; lun < ssd->sp.luns_per_ch; lun++) {
 			ppa.ppa = 0;
@@ -509,7 +586,7 @@ void ssd_remove(struct ssd *ssd)
 			}
 		}
 	}
-
+#endif
 	buffer_remove(ssd->write_buffer);
 	kfree(ssd->write_buffer);
 	if (ssd->pcie) {
@@ -646,6 +723,92 @@ static void lun_update(struct nand_lun *lun, struct nand_cmd *ncmd, bool preemp,
 		preemp, lun->next_lun_avail_time, cmd_etime, ncmd->ctime);
 }
 
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+static bool plane_getstime(struct nand_plane *pl, struct nand_cmd *ncmd, uint64_t ncmd_stime)
+{
+	// Clear the current completed requests
+	struct nand_cmd *cmd, *next_cmd;
+	list_for_each_entry_safe(cmd, next_cmd, &pl->cmd_queue_head, entry)
+	{
+		if (cmd->ctime < ncmd_stime) {
+			list_del(&cmd->entry);
+			pl->cmd_queue_depth--;
+			kfree(cmd);
+		}
+	}
+	if (ncmd_stime > pl->migrating_etime)
+		pl->migrating = false;
+
+	bool preemp = false;
+	if (ncmd->type != MIGRATE_IO && pl->migrating) {
+		list_for_each_entry_safe(cmd, next_cmd, &pl->cmd_queue_head, entry)
+		{
+			if (cmd->type == MIGRATE_IO && cmd->stime > ncmd_stime &&
+				cmd->ppa.zms.blk != ncmd->ppa.zms.blk) {
+				list_add_tail(&ncmd->entry, &cmd->entry);
+				pl->cmd_queue_depth++;
+				pl->max_cmd_queue_depth = max(pl->max_cmd_queue_depth, pl->cmd_queue_depth);
+				ncmd->stime = cmd->stime;
+				preemp = true;
+				break;
+			}
+		}
+	}
+
+	if (!preemp) {
+		list_add_tail(&ncmd->entry, &pl->cmd_queue_head);
+		pl->cmd_queue_depth++;
+		pl->max_cmd_queue_depth = max(pl->max_cmd_queue_depth, pl->cmd_queue_depth);
+		ncmd->stime = max(pl->next_pln_avail_time, ncmd_stime);
+
+		if (ncmd->type == MIGRATE_IO && !pl->migrating) {
+			pl->migrating = true;
+		}
+	}
+
+	NVMEV_CONZONE_PRINT_TIME(
+		"%s: preemp %d current queue depth %llu plane next avail time %llu ncmd submit time "
+		"%llu ncmd stime %llu\n",
+		__func__, preemp, pl->cmd_queue_depth, pl->next_pln_avail_time, ncmd_stime, ncmd->stime);
+	return preemp;
+}
+
+static void plane_update(struct nand_plane *pl, struct nand_cmd *ncmd, bool preemp,
+						 uint64_t cmd_etime)
+{
+	if (preemp) {
+		struct nand_cmd *cmd, *next_cmd;
+		bool delay = false;
+		list_for_each_entry_safe(cmd, next_cmd, &pl->cmd_queue_head, entry)
+		{
+			if (delay) {
+				cmd->stime += cmd_etime - ncmd->stime;
+				cmd->ctime += cmd_etime - ncmd->stime;
+
+				if (cmd->type == MIGRATE_IO) {
+					pl->migrating_etime = max(pl->migrating_etime, cmd->ctime);
+				}
+			}
+			if (cmd == ncmd) {
+				delay = true;
+			}
+		}
+		pl->next_pln_avail_time += cmd_etime - ncmd->stime;
+	} else {
+		pl->next_pln_avail_time = cmd_etime;
+	}
+
+	ncmd->ctime = cmd_etime;
+	if (ncmd->type == MIGRATE_IO) {
+		pl->migrating_etime = max(pl->migrating_etime, ncmd->ctime);
+	}
+
+	NVMEV_CONZONE_PRINT_TIME(
+		"%s: preemp %d plane next avail time %llu complete time %llu ncmd ctime %llu\n", __func__,
+		preemp, pl->next_pln_avail_time, cmd_etime, ncmd->ctime);
+}
+#endif
+
 uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 {
 	int c = ncmd->cmd;
@@ -655,6 +818,7 @@ uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 	uint64_t remaining, xfer_size, completed_time;
 	struct ssdparams *spp;
 	struct nand_lun *lun;
+	struct nand_plane *pl;
 	struct ssd_channel *ch;
 	struct nand_block *blk;
 	struct ppa *ppa = &ncmd->ppa;
@@ -671,6 +835,7 @@ uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 
 	spp = &ssd->sp;
 	lun = get_lun(ssd, ppa);
+	pl = get_pl(ssd, ppa);
 	ch = get_ch(ssd, ppa);
 	blk = get_blk(ssd, ppa);
 	cell = get_cell(ssd, ppa);
@@ -686,7 +851,11 @@ uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 	switch (c) {
 	case NAND_READ:
 		/* read: perform NAND cmd first */
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		preemp = plane_getstime(pl, ncmd, cmd_stime);
+#else
 		preemp = lun_getstime(lun, ncmd, cmd_stime);
+#endif
 		nand_stime = ncmd->stime;
 
 		if (ncmd->xfer_size == 4096) {
@@ -712,11 +881,19 @@ uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 			chnl_stime = chnl_etime;
 		}
 
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		plane_update(pl, ncmd, preemp, chnl_etime);
+#else
 		lun_update(lun, ncmd, preemp, chnl_etime);
+#endif
 		break;
 	case NAND_WRITE:
 		/* write: transfer data through channel first */
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		preemp = plane_getstime(pl, ncmd, cmd_stime);
+#else
 		preemp = lun_getstime(lun, ncmd, cmd_stime);
+#endif
 		chnl_stime = ncmd->stime;
 
 		chnl_etime = chmodel_request(ch->perf_model, chnl_stime, ncmd->xfer_size);
@@ -724,23 +901,40 @@ uint64_t ssd_advance_nand(struct ssd *ssd, struct nand_cmd *ncmd)
 		/* write: then do NAND program */
 		nand_stime = chnl_etime;
 		nand_etime = nand_stime + spp->pg_wr_lat[cell_mode];
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		plane_update(pl, ncmd, preemp, nand_etime);
+#else
 		lun_update(lun, ncmd, preemp, nand_etime);
+#endif
 		completed_time = nand_etime;
 		break;
 
 	case NAND_ERASE:
 		/* erase: only need to advance NAND status */
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		preemp = plane_getstime(pl, ncmd, cmd_stime);
+#else
 		preemp = lun_getstime(lun, ncmd, cmd_stime);
+#endif
 		nand_stime = ncmd->stime;
 		nand_etime = nand_stime + spp->blk_er_lat;
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		plane_update(pl, ncmd, preemp, nand_etime);
+#else
 		lun_update(lun, ncmd, preemp, nand_etime);
+#endif
 		completed_time = nand_etime;
 		break;
 
 	case NAND_NOP:
 		/* no operation: just return last completed time of lun */
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+		nand_stime = max(pl->next_pln_avail_time, cmd_stime);
+		pl->next_pln_avail_time = nand_stime;
+#else
 		nand_stime = max(lun->next_lun_avail_time, cmd_stime);
 		lun->next_lun_avail_time = nand_stime;
+#endif
 		completed_time = nand_stime;
 		break;
 
@@ -764,7 +958,14 @@ uint64_t ssd_next_idle_time(struct ssd *ssd)
 
 		for (j = 0; j < spp->luns_per_ch; j++) {
 			struct nand_lun *lun = &ch->lun[j];
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+			for (int k = 0; k < spp->pls_per_lun; k++) {
+				struct nand_plane *pl = &lun->pl[k];
+				latest = max(latest, pl->next_pln_avail_time);
+			}
+#else
 			latest = max(latest, lun->next_lun_avail_time);
+#endif
 		}
 	}
 

@@ -8,29 +8,28 @@
 #include "nvme_zns.h"
 
 #define NVMEV_ZNS_DEBUG(string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_DEBUG(string,                                                                \
+#define NVMEV_CONZONE_DEBUG(string, \
 							args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_CONV_RW_DEBUG(                                                               \
+#define NVMEV_CONZONE_CONV_RW_DEBUG( \
 	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_RW_DEBUG(string,                                                             \
-							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_RW_DEBUG_VERBOSE(                                                            \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_L2P_DEBUG(                                                                   \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_CONV_MAPPING_DEBUG(                                                          \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_MAPPING_DEBUG(                                                               \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_L2P_DEBUG_VERBOSE(                                                           \
-	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_GC_DEBUG(string, args...)                                                    \
+#define NVMEV_CONZONE_RW_DEBUG(string, args...) \
 	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_GC_DEBUG_VERBOSE(string, args...)                                            \
+#define NVMEV_CONZONE_RW_DEBUG_VERBOSE(string, args...) \
 	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-#define NVMEV_CONZONE_PRINT_BW(string,                                                             \
-							   args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
-
+#define NVMEV_CONZONE_L2P_DEBUG(string, args...) \
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_CONV_MAPPING_DEBUG( \
+	string, args...) // printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_MAPPING_DEBUG(string, args...) \
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_L2P_DEBUG_VERBOSE(string, args...) \
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_GC_DEBUG(string, args...) \
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_GC_DEBUG_VERBOSE(string, args...) \
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
+#define NVMEV_CONZONE_PRINT_BW(string, args...) \
+	// printk(KERN_INFO "%s: " string, NVMEV_DRV_NAME, ##args)
 enum {
 	SUCCESS = 0,
 	FAILURE = 1,
@@ -41,13 +40,19 @@ enum {
 	LOC_PSLC = 1,
 };
 
+enum {
+	META_NAMESPACE = 0,
+	DATA_NAMESPACE = 1,
+	UNDEFINED_NAMESPACE = 2,
+};
+
 // Zoned Namespace Command Set Specification Revision 1.1a
 struct znsparams {
 	uint32_t nr_zones;
 	uint32_t nr_active_zones;
 	uint32_t nr_open_zones;
 	uint32_t dies_per_zone;
-	uint32_t zone_size; // bytes
+	uint64_t zone_size; // bytes
 	uint32_t zone_wb_size;
 
 	/*related to zrwa*/
@@ -139,7 +144,7 @@ struct zms_line {
 /* wp: record next write addr */
 struct zms_write_pointer {
 	struct zms_line *curline;
-	bool loc;
+	int loc;
 	uint32_t ch;
 	uint32_t lun;
 	uint32_t pl;
@@ -173,6 +178,19 @@ struct zms_line_mgmt {
 struct zms_write_flow_control {
 	long int write_credits;
 	long int credits_to_refill;
+};
+
+struct zms_workspace {
+	// Size：nchs * luns_per_ch * "pls_per_lun"(4)
+	struct ppa *read_prev_ppas;
+	uint64_t *read_agg_sizes;
+
+	// For handle_read_request, submit_internal_write.etc
+	// Size: max IO length (e.g 1MB IO -> 256 LPN -> 2KB)
+	uint64_t *common_lpns;
+
+	// For GC/Migration
+	uint64_t *gc_lpns;
 };
 
 struct zms_ftl {
@@ -236,6 +254,7 @@ struct zms_ftl {
 	uint64_t read_wb_hits;
 	uint64_t unmapped_read_cnt;
 	uint64_t host_r_pgs;
+	uint64_t device_r_pgs;
 	uint64_t zone_reset_cnt;	//# of zone resets
 	uint64_t zone_write_cnt;	//# of zone write
 	uint64_t host_wrequest_cnt; //# of host write requests
@@ -247,11 +266,21 @@ struct zms_ftl {
 	uint32_t normal_erase_cnt;
 	uint32_t slc_erase_cnt;
 	int gc_count;
+	int migrate_count;
+	int should_migrate_times;
 	int early_flush_cnt;
 	int inplace_update;	  // for debug
 	int flush_to_slc;	  // for debug
 	int flush_to_regular; // for debug
-	int gc_copy_pgs;	  // for debug
+	int device_copy_pgs;  // for debug
+	uint64_t lock_last_stime;
+	uint64_t avg_wait_for_lock; // for debug
+
+	struct zms_workspace ws;
+	struct ppa *read_prev_ppas;
+	uint64_t *read_agg_size;
+	// Slab Cache for nand_cmd
+	struct kmem_cache *cmd_cache;
 };
 
 /* zns internal functions */
@@ -411,7 +440,26 @@ bool zns_write(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_resu
 bool zns_read(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
 bool zns_proc_nvme_io_cmd(struct nvmev_ns *ns, struct nvmev_request *req, struct nvmev_result *ret);
 
+static inline bool is_zoned(int ns_type)
+{
+	return (ns_type == SSD_TYPE_CONZONE_ZONED);
+}
+
 #if (BASE_SSD == CONZONE_PROTOTYPE)
+static inline int get_namespace_type(int ns_type)
+{
+	switch (ns_type) {
+	case SSD_TYPE_CONZONE_META:
+		return META_NAMESPACE;
+	case SSD_TYPE_CONZONE_ZONED:
+	case SSD_TYPE_CONZONE_BLOCK:
+		return DATA_NAMESPACE;
+	default:
+		NVMEV_ERROR("undefined namespace type? %d\n", ns_type);
+		return UNDEFINED_NAMESPACE;
+	}
+}
+
 void zms_init_namespace(struct nvmev_ns *ns, uint32_t id, uint64_t size, void *mapped_addr,
 						uint32_t cpu_nr_dispatcher);
 void zms_remove_namespace(struct nvmev_ns *ns);

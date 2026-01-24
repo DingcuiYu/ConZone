@@ -1,4 +1,5 @@
 import os
+import sys
 
 WORK_DIR = "/home/lab/mnt/home/lab/ydc/emulators/public/ConZone"
 
@@ -6,10 +7,15 @@ RMMOD_CMD = "sudo rmmod nvmev"
 UMOUNT_CMD = "sudo umount mnt"
 
 
-def process():
-    # umount
-    print("\numount: %s" % (UMOUNT_CMD))
-    os.system(UMOUNT_CMD)
+def process(rawdevice=False):
+    if rawdevice == False:
+        # umount
+        print("\numount: %s" % (UMOUNT_CMD))
+        ret = os.system(UMOUNT_CMD)
+
+        if ret:
+            print("Umount Error")
+            return ret
 
     # rmmod
     print("\nrmmod: %s" % (RMMOD_CMD))
@@ -18,7 +24,12 @@ def process():
     return 0
 
 
-# Usage: python3 exp.py [block/zoned] [scheme_name]
+# Usage: python3 umount.py
 if __name__ == "__main__":
     os.chdir(WORK_DIR)
-    ret = process()
+    if len(sys.argv) > 1 and sys.argv[1] == "rawdevice":
+        ret = process(rawdevice=True)
+    else:
+        ret = process()
+    if ret == 0:
+        print("Umount Success")

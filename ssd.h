@@ -58,7 +58,11 @@ enum data_hotness {
 };
 
 /* Cell type */
-enum cell_types { CELL_TYPE_LSB, CELL_TYPE_MSB, CELL_TYPE_CSB, CELL_TYPE_TSB, MAX_CELL_TYPES };
+enum cell_types { CELL_TYPE_LSB,
+				  CELL_TYPE_MSB,
+				  CELL_TYPE_CSB,
+				  CELL_TYPE_TSB,
+				  MAX_CELL_TYPES };
 
 #define TOTAL_PPA_BITS (64)
 #define BLK_BITS (16)
@@ -69,8 +73,9 @@ enum cell_types { CELL_TYPE_LSB, CELL_TYPE_MSB, CELL_TYPE_CSB, CELL_TYPE_TSB, MA
 #define RSB_BITS (TOTAL_PPA_BITS - (BLK_BITS + PAGE_BITS + PL_BITS + LUN_BITS + CH_BITS))
 
 #define CONZONE_MAP_BITS (2)
-#define CONZONE_RSV_BITS                                                                               \
-	(TOTAL_PPA_BITS - (BLK_BITS + PAGE_BITS + PL_BITS + LUN_BITS + CH_BITS + CONZONE_MAP_BITS))
+#define CONZONE_MAP_RSV_BITS (1)
+#define CONZONE_RSV_BITS \
+	(TOTAL_PPA_BITS - (BLK_BITS + PAGE_BITS + PL_BITS + LUN_BITS + CH_BITS + CONZONE_MAP_BITS + CONZONE_MAP_RSV_BITS))
 
 /* describe a physical page addr */
 struct ppa {
@@ -97,12 +102,16 @@ struct ppa {
 			uint64_t lun : LUN_BITS;
 			uint64_t ch : CH_BITS;
 			uint64_t map : CONZONE_MAP_BITS;
+			uint64_t map_rsv : CONZONE_MAP_RSV_BITS;
 			uint64_t rsv : CONZONE_RSV_BITS;
 		} zms;
 
 		uint64_t ppa;
 	};
 };
+
+#define RSV_PPA ((struct ppa){.zms.map_rsv = 1})
+#define IS_RSV_PPA(p) ((p).zms.map_rsv == 1)
 
 struct nand_cmd {
 	int type;
@@ -138,6 +147,14 @@ struct nand_plane {
 	struct nand_block *blk;
 	uint64_t next_pln_avail_time;
 	int nblks;
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+	bool busy;
+	struct list_head cmd_queue_head;
+	uint64_t cmd_queue_depth;
+	uint64_t max_cmd_queue_depth;
+	bool migrating;
+	uint64_t migrating_etime;
+#endif
 };
 
 struct nand_lun {
@@ -168,12 +185,13 @@ struct buffer {
 	size_t size;
 	size_t remaining;
 	spinlock_t lock;
+	int ns_type;
 	int zid;
 	uint64_t tt_lpns;
 	uint64_t *lpns; // for flush
 	uint64_t pgs;	// for flush
 	uint32_t sqid;	// for flush
-	bool flushing;
+	bool busy;
 	size_t flush_data;
 	size_t capacity; // avaliable buffer size
 	uint64_t time;	 // for flush bandwidth
@@ -212,7 +230,7 @@ struct ssdparams {
 	int pg_rd_lat[MAX_CELL_MODE]
 				 [MAX_CELL_TYPES]; /* NAND page read latency in nanoseconds. sensing time (tR) */
 	int pg_wr_lat[MAX_CELL_MODE];  /* NAND page program latency in nanoseconds. pgm time (tPROG)*/
-	int blk_er_lat; /* NAND block erase latency in nanoseconds. erase time (tERASE) */
+	int blk_er_lat;				   /* NAND block erase latency in nanoseconds. erase time (tERASE) */
 	int max_ch_xfer_size;
 
 	int fw_4kb_rd_lat;	/* Firmware overhead of 4KB read of read in nanoseconds */
@@ -251,22 +269,24 @@ struct ssdparams {
 	unsigned long tt_luns; /* total # of LUNs in the SSD */
 
 	unsigned long long write_buffer_size;
+	unsigned long line_groups;
 
 #if (BASE_SSD == CONZONE_PROTOTYPE)
-	int blksz; /* chunk mapping unit in bytes*/
-	int pslc_blksz;
+	uint64_t blksz; /* chunk mapping unit in bytes*/
+	uint64_t pslc_blksz;
 	uint64_t pslc_pgs_per_oneshotpg; /* # of pgs per oneshot pSLC page*/
-	int pslc_flashpgs_per_blk;
-	int pslc_pgs_per_flashpg;
-	int pslc_pgs_per_blk;
-	unsigned long pslc_pgs_per_line;
-	int pslc_blks;
-	int meta_pslc_blks;
-	int meta_normal_blks;
+	uint64_t pslc_flashpgs_per_blk;
+	uint64_t pslc_pgs_per_flashpg;
+	uint64_t pslc_pgs_per_blk;
+	uint64_t pslc_pgs_per_line;
+	uint64_t pslc_blks;
+	uint64_t meta_pslc_blks;
+	uint64_t meta_normal_blks;
 #endif
 };
 
 struct l2pcache_ent {
+	int nsid;
 	uint64_t lpn;
 	int granularity;
 	int resident;
@@ -340,6 +360,9 @@ uint64_t ssd_next_idle_time(struct ssd *ssd);
 
 void buffer_init(struct buffer *buf, size_t size);
 uint32_t buffer_allocate(struct buffer *buf, size_t size);
+#if (BASE_SSD == CONZONE_PROTOTYPE)
+bool is_buffer_busy(struct buffer *buf);
+#endif
 bool buffer_release(struct buffer *buf, size_t size);
 void buffer_refill(struct buffer *buf);
 void buffer_remove(struct buffer *buf);

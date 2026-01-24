@@ -117,12 +117,10 @@ static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 #elif (BASE_SSD == ZNS_PROTOTYPE)
 #define NR_NAMESPACES (2ULL)
 
-// TLC
-//  4GiB MB(864ULL)
-#define PHYSICAL_META_SIZE MB(864ULL)
+#define PHYSICAL_META_SIZE MB(7392ULL)
 
-//  4GiB ZONED: 256ULL BLOCK: MB(40ULL)
-#define LOGICAL_META_SIZE MB(256ULL)
+//  32GiB ZONED: MB(4096ULL) BLOCK: MB(224ULL)
+#define LOGICAL_META_SIZE GB(2ULL)
 
 #define NS_SSD_TYPE_0 SSD_TYPE_CONV
 #define NS_CAPACITY_0 (PHYSICAL_META_SIZE)
@@ -132,9 +130,9 @@ static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 #define CELL_MODE (CELL_MODE_TLC)
 
 #define SSD_PARTITIONS (1)
-#define NAND_CHANNELS (2)
+#define NAND_CHANNELS (4)
 #define LUNS_PER_NAND_CH (2)
-#define FLASH_PAGE_SIZE KB(32)
+#define FLASH_PAGE_SIZE KB(64)
 #define PLNS_PER_LUN (1) /* not used*/
 #define DIES_PER_ZONE (4)
 
@@ -144,24 +142,24 @@ static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 #define ZONE_SIZE MB(96) /* kernal only support zone size which is power of 2 */
 #else					 /* If kernel is not modified, use this config for just testing ZNS*/
 #define ONESHOT_PAGE_SIZE (FLASH_PAGE_SIZE * 3)
-#define ZONE_SIZE MB(128)
-#define ZONE_CAPACITY MB(96)
+#define ZONE_SIZE MB(1024)
+#define ZONE_CAPACITY MB(528)
 #endif
 static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 
 #define MAX_CH_XFER_SIZE (FLASH_PAGE_SIZE) /* to overlap with pcie transfer */
 #define WRITE_UNIT_SIZE (512)
 
-#define NAND_CHANNEL_BANDWIDTH (1600ull) // MB/s (800ull)
+#define NAND_CHANNEL_BANDWIDTH (1422ull) // MB/s (800ull)
 #define PCIE_BANDWIDTH (3000ull)		 // MB/s (3200ull)
 
-#define NAND_4KB_READ_LATENCY_LSB (32000) //(25485)
-#define NAND_4KB_READ_LATENCY_MSB (32000) //(25485)
-#define NAND_4KB_READ_LATENCY_CSB (32000) //(25485)
+#define NAND_4KB_READ_LATENCY_LSB (40000) //(25485)
+#define NAND_4KB_READ_LATENCY_MSB (40000) //(25485)
+#define NAND_4KB_READ_LATENCY_CSB (40000) //(25485)
 #define NAND_4KB_READ_LATENCY_TSB (0)	  // not used //(0)
-#define NAND_READ_LATENCY_LSB (32000)	  //(40950)
-#define NAND_READ_LATENCY_MSB (32000)	  //(40950)
-#define NAND_READ_LATENCY_CSB (32000)	  //(40950)
+#define NAND_READ_LATENCY_LSB (40000)	  //(40950)
+#define NAND_READ_LATENCY_MSB (40000)	  //(40950)
+#define NAND_READ_LATENCY_CSB (40000)	  //(40950)
 #define NAND_READ_LATENCY_TSB (0)		  // not used //(0)
 #define NAND_PROG_LATENCY (937500)		  //(1913640)
 #define NAND_ERASE_LATENCY (3500000)	  //(0)
@@ -174,7 +172,7 @@ static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 #define OP_AREA_PERCENT (0)
 
 #define GLOBAL_WB_SIZE KB(512) //(NAND_CHANNELS * LUNS_PER_NAND_CH * ONESHOT_PAGE_SIZE * 2)
-#define ZONE_WB_SIZE KB(512)   // 0
+#define ZONE_WB_SIZE KB(1536)  // 0
 #define WRITE_EARLY_COMPLETION 1
 
 /* Don't modify followings. BLK_SIZE is caculated from ZONE_SIZE and DIES_PER_ZONE */
@@ -258,21 +256,15 @@ static_assert((ZONE_SIZE % DIES_PER_ZONE) == 0);
 #define LBA_BITS (9)
 #define LBA_SIZE (1 << LBA_BITS)
 
+// HN8T274EJKX130 Zoned UFS
 #elif (BASE_SSD == CONZONE_PROTOTYPE)
 #define NR_NAMESPACES (2ULL)
 
 static_assert(NR_NAMESPACES <= 2);
-// TLC
-//  64GiB ZONED MB(1728ULL)      BLOCK MB(1248ULL)
-//  4GiB ZONED MB(864ULL) BLOCK MB(384ULL)
-// QLC
-//  64GiB ZONED: MB(2304ULL) BLOCK MB(1664ULL)
-//  4GiB ZONED: MB(1152ULL) BLOCK MB(512ULL)
-#define PHYSICAL_META_SIZE MB(2304ULL)
+#define PHYSICAL_META_SIZE MB(7392ULL)
 
-//  64GiB ZONED: MB(512ULL) BLOCK: MB(376ULL)
-//  4GiB ZONED: 256ULL BLOCK: MB(40ULL)
-#define LOGICAL_META_SIZE MB(512ULL)
+//  32GiB ZONED: MB(4096ULL) BLOCK: MB(224ULL)
+#define LOGICAL_META_SIZE GB(2ULL)
 
 #define NS_SSD_TYPE_0 SSD_TYPE_CONZONE_META
 #define NS_CAPACITY_0 (PHYSICAL_META_SIZE)
@@ -280,11 +272,11 @@ static_assert(NR_NAMESPACES <= 2);
 #define NS_CAPACITY_1 (0ULL)
 #define MDTS (6)
 // The maximum queue depth for consumer-grade devices is typically 32 (or 64) (MQES+1)
-#define MQES (31)
+#define MQES (63)
 
-#define CELL_MODE (CELL_MODE_QLC)
+#define CELL_MODE (CELL_MODE_TLC)
 
-#define SLC_BYPASS (0)
+#define SLC_BYPASS (1)
 static_assert(!SLC_BYPASS || (CELL_MODE != CELL_MODE_QLC));
 
 #define NORMAL_ONLY (0)
@@ -294,28 +286,30 @@ static_assert(!(NORMAL_ONLY && !SLC_BYPASS));
 #define ZONED_SLC (0)
 
 #define SSD_PARTITIONS (1)
-#define NAND_CHANNELS (2)
+#define NAND_CHANNELS (4)
 #define LUNS_PER_NAND_CH (2)
-#define PLNS_PER_LUN (1) /* not used*/
+#define PLNS_PER_LUN (4)
 
 #define PG_SIZE KB(4ULL)
-#define FLASH_PAGE_SIZE KB(32) // 16KiB
-#define ONESHOT_PAGE_SIZE                                                                          \
-	(FLASH_PAGE_SIZE * (CELL_MODE) * (PLNS_PER_LUN)) // Misao: Program Unit,2 planes
+#define FLASH_PAGE_SIZE KB(16) // 16KiB * 4 plane
+#define ONESHOT_PAGE_SIZE (FLASH_PAGE_SIZE * (CELL_MODE))
 static_assert((ONESHOT_PAGE_SIZE % FLASH_PAGE_SIZE) == 0);
 
-#define BLKS_PER_PLN 0	   /* BLK_SIZE should not be 0 */
-#define BLK_SIZE MB(32ULL) // TLC - MB(24ULL), QLC ~ 48MB(32MB, to make it be po2) MB(32ULL)
+#define BLKS_PER_PLN 0				  /* BLK_SIZE should not be 0 */
+#define BLK_SIZE MB(33ULL)			  // TLC ~ MB(66ULL) / MB(24ULL), QLC ~ MB(32ULL)
 static_assert(BLK_SIZE || BLKS_PER_PLN);
 static_assert(((BLK_SIZE * PLNS_PER_LUN) % ONESHOT_PAGE_SIZE) == 0);
 
-#define DIES_PER_ZONE (NAND_CHANNELS * LUNS_PER_NAND_CH)
-#define ZONE_SIZE (BLK_SIZE * DIES_PER_ZONE)
+// zone == superblock
+#define DIES_PER_ZONE (NAND_CHANNELS) // use only 4 dies in zone
+static_assert(DIES_PER_ZONE % NAND_CHANNELS == 0);
+#define PLNS_PER_ZONE (DIES_PER_ZONE * PLNS_PER_LUN)
+#define ZONE_SIZE (BLK_SIZE * PLNS_PER_ZONE)
 
 #define MAX_CH_XFER_SIZE FLASH_PAGE_SIZE /* to overlap with pcie transfer */
 #define WRITE_UNIT_SIZE (512)
-//(450ull)  5939 2970 3200
-#define NAND_CHANNEL_BANDWIDTH (1600ull) // MB/s
+//(450ull)  5939 2970 3200 (1422ull)
+#define NAND_CHANNEL_BANDWIDTH (1422ull) // MB/s
 // 3050
 #define PCIE_BANDWIDTH (3000ull)		 // MB/s
 
@@ -339,9 +333,10 @@ static_assert(((BLK_SIZE * PLNS_PER_LUN) % ONESHOT_PAGE_SIZE) == 0);
 #define MLC_NAND_READ_LATENCY_LSB (36013 - 6000)
 #define MLC_NAND_READ_LATENCY_MSB (36013 + 6000)
 
-#define TLC_NAND_READ_LATENCY_LSB (32000)
-#define TLC_NAND_READ_LATENCY_MSB (32000)
-#define TLC_NAND_READ_LATENCY_CSB (32000)
+// 32000
+#define TLC_NAND_READ_LATENCY_LSB (40000)
+#define TLC_NAND_READ_LATENCY_MSB (40000)
+#define TLC_NAND_READ_LATENCY_CSB (40000)
 
 #define QLC_NAND_READ_LATENCY_LSB (85000)
 #define QLC_NAND_READ_LATENCY_MSB (85000)
@@ -359,8 +354,8 @@ static_assert(((BLK_SIZE * PLNS_PER_LUN) % ONESHOT_PAGE_SIZE) == 0);
 
 //(ONESHOT_PAGE_SIZE*LUNS_PER_NAND_CH*NAND_CHANNELS)
 
-#define ZONE_WB_SIZE KB(768ULL) // 768ULL
-#define NR_ZONE_WB (2)
+#define ZONE_WB_SIZE KB(1536ULL) // 1536ULL 768ULL
+#define NR_ZONE_WB (1)
 /* limited write buffer size*/
 enum wb_strategy {
 	// The size of each write buffer is "ZONE_WB_SIZE/NR_ZONE_WB"
@@ -402,25 +397,26 @@ static const int map_type[] = {ZONE_MAP, SUB_ZONE_MAP, CHUNK_MAP, PAGE_MAP};
 #define OP_AREA_PERCENT (0.07)
 
 /* For meta area*/
-#define META_WB_SIZE KB(512ULL)
+#define META_WB_SIZE KB(384ULL)
 #define NR_META_WB (1)
 static_assert(NR_META_WB <= 1);
 // static_assert((PHYSICAL_META_SIZE % (BLK_SIZE* NAND_CHANNELS * LUNS_PER_NAND_CH)) == 0);
-#define META_pSLC_INIT_BLKS                                                                        \
-	(DIV_ROUND_UP(PHYSICAL_META_SIZE, (BLK_SIZE * NAND_CHANNELS *                                  \
-									   LUNS_PER_NAND_CH))) // all the meta data is stored in pSLC
+#define META_pSLC_INIT_BLKS                                                          \
+	(DIV_ROUND_UP(PHYSICAL_META_SIZE, (BLK_SIZE * NAND_CHANNELS * LUNS_PER_NAND_CH * \
+									   PLNS_PER_LUN))) // all the meta data is stored in pSLC
 static_assert(META_pSLC_INIT_BLKS >= 4); // for gc
 										 /* For ZRWA */
 
 /* For pSLC area*/
 #define pSLC_BLK_SIZE (BLK_SIZE / CELL_MODE)
-#define pSLC_ONESHOT_PAGE_SIZE (FLASH_PAGE_SIZE * (PLNS_PER_LUN))
+#define pSLC_ONESHOT_PAGE_SIZE (FLASH_PAGE_SIZE)
 static_assert(((pSLC_BLK_SIZE * PLNS_PER_LUN) % pSLC_ONESHOT_PAGE_SIZE) == 0);
 
-#define DATA_pSLC_INIT_BLKS (28)
-#define DATA_pSLC_RSV_SIZE (BLK_SIZE * NAND_CHANNELS * LUNS_PER_NAND_CH * DATA_pSLC_INIT_BLKS)
-static_assert(DATA_pSLC_INIT_BLKS >= 4);
-#define pSLC_INIT_BLKS                                                                             \
+#define DATA_pSLC_INIT_BLKS (4)
+#define DATA_pSLC_RSV_SIZE \
+	(BLK_SIZE * NAND_CHANNELS * LUNS_PER_NAND_CH * PLNS_PER_LUN * DATA_pSLC_INIT_BLKS)
+// static_assert(DATA_pSLC_INIT_BLKS >= 4);
+#define pSLC_INIT_BLKS \
 	(META_pSLC_INIT_BLKS + (DATA_pSLC_INIT_BLKS)) // pSLC area size, unit: # of sblks
 
 #define MAX_ZRWA_ZONES (0)
@@ -443,7 +439,7 @@ static const uint64_t ns_capacity[] = {NS_CAPACITY_0, NS_CAPACITY_1};
 /* Still only support NR_NAMESPACES <= 2 */
 static_assert(NR_NAMESPACES <= 2);
 
-#define SUPPORTED_SSD_TYPE(type)                                                                   \
+#define SUPPORTED_SSD_TYPE(type) \
 	(NS_SSD_TYPE_0 == SSD_TYPE_##type || NS_SSD_TYPE_1 == SSD_TYPE_##type)
 
 #endif

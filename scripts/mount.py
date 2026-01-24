@@ -1,4 +1,5 @@
 import os
+import sys
 
 WORK_DIR = "/home/lab/mnt/home/lab/ydc/emulators/public/ConZone"
 
@@ -7,51 +8,46 @@ DATA_DEVICE = "/dev/nvme2n2"
 
 # make -j `nproc`
 
-## 4 GiB
-### TLC
-#### zoned sudo insmod ./nvmev.ko memmap_start=82G memmap_size=7657M cpus=7,8
-#### block sudo insmod ./nvmev.ko memmap_start=82G memmap_size=7465M cpus=7,8
-### QLC
-#### block sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8577M cpus=7,8
-#### zoned sudo insmod ./nvmev.ko memmap_start=82G memmap_size=8833M cpus=7,8
+## 1056 MiB zone ( 32 GiB )
+## zoned sudo insmod ./nvmev.ko memmap_start=102G memmap_size=44881M cpus=37,39
+## block sudo insmod ./nvmev.ko memmap_start=102G memmap_size=41713M cpus=37,39
+INSMOD_CMD = f"sudo insmod ./nvmev.ko memmap_start=102G memmap_size=44881M cpus=37,39"
 
-## 64 GiB
-### TLC
-#### block insmod ./nvmev.ko memmap_start=82G memmap_size=74089M cpus=7,8
-#### zoned insmod ./nvmev.ko memmap_start=82G memmap_size=69961M cpus=7,8
-
-### QLC
-#### block insmod ./nvmev.ko memmap_start=82G memmap_size=75393M cpus=7,8
-#### zoned insmod ./nvmev.ko memmap_start=82G memmap_size=71425M cpus=7,8
-INSMOD_CMD = f"sudo insmod ./nvmev.ko memmap_start=82G memmap_size=71425M cpus=7,8"
-
-MKFS_DIR = "f2fs-tools-1.14.0/build/sbin"
-MKFS_CMD = f"sudo ./mkfs.f2fs -f -c {DATA_DEVICE} {META_DEVICE}"
+MKFS_DIR = "f2fs-tools-1.14.0/mkfs"
 # block sudo ./mkfs.f2fs -f -c /dev/nvme2n2 /dev/nvme2n1
 # zone sudo ./mkfs.f2fs -f -m -c /dev/nvme2n2 /dev/nvme2n1
+MKFS_CMD = f"sudo ./mkfs.f2fs -f -m -c {DATA_DEVICE} {META_DEVICE}"
 
 # MOUNT_CMD = "mount -o age_extent_cache,discard /dev/nvme2n1 mnt"
 MOUNT_CMD = f"sudo mount {META_DEVICE} mnt"
 
+RAWDEVICE = 0
+MOUNT = 1
+ALL = 2
+
 
 def prepare():
     # compile
-    ret = os.system("make -j `nproc`")
+    ret = os.system("sudo make -j `nproc`")
     if ret:
         print("Compile Error")
         return ret
     return 0
 
 
-def process():
-    # insmod
-    print(f"\ninsmod: {INSMOD_CMD}")
-    ret = os.system(INSMOD_CMD)
-    if ret:
-        print("Insmod Error")
-        return ret
-    os.system(f"sudo dmesg > {WORK_DIR}/log/insmod_dmesg")
-    os.system("sudo dmesg -c > /dev/zero")
+def process(step=2):
+    if step != MOUNT:
+        # insmod
+        print(f"\ninsmod: {INSMOD_CMD}")
+        ret = os.system(INSMOD_CMD)
+        if ret:
+            print("Insmod Error")
+            return ret
+        os.system(f"sudo dmesg > {WORK_DIR}/log/insmod_dmesg")
+        os.system("sudo dmesg -c > /dev/zero")
+
+    if step == RAWDEVICE:
+        return 0
 
     # mkfs.f2fs & mnt
     os.chdir(MKFS_DIR)
@@ -75,6 +71,14 @@ def process():
 # Usage: python3 mount.py
 if __name__ == "__main__":
     os.chdir(WORK_DIR)
-    ret = prepare()
+    ret = 0
+    step = ALL
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "rawdevice":
+            step = RAWDEVICE
+        elif sys.argv[1] == "mount":
+            step = MOUNT
+    if step != MOUNT:
+        ret = prepare()
     if ret == 0:
-        process()
+        process(step=step)

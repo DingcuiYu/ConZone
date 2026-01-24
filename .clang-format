@@ -5,4 +5,4 @@ UseTab: Always
 TabWidth: 4
 BreakBeforeBraces: Linux
 AllowShortIfStatementsOnASingleLine: false
-ColumnLimit: 100
+ColumnLimit: 0

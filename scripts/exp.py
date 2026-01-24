@@ -1,337 +1,253 @@
+import subprocess
 import os
-import sys
-import contextlib
 
-WORK_DIR = "/home/lab/mnt/home/lab/ydc/emulators/public/ConZone"
-OUT_DIR = f"log/{sys.argv[2]}"
-
-META_DEVICE = "/dev/nvme2n1"
-DATA_DEVICE = "/dev/nvme2n2"
-
-zoned_memmapsize = 9729
-block_memmapsize = 74989
-memmapsize = block_memmapsize
-if sys.argv[1] == "zoned":
-    memmapsize = zoned_memmapsize
-
-zoned_options = "-f -m -c"
-block_options = "-f -c"
-options = block_options
-if sys.argv[1] == "zoned":
-    options = zoned_options
-
-# make -j `nproc`
-# sudo insmod ./nvmev.ko memmap_start=82G memmap_size=9729M cpus=7,8 (zonedslc 7 pslc)
-# insmod ./nvmev.ko memmap_start=82G memmap_size=74989M cpus=7,8
-# insmod ./nvmev.ko memmap_start=82G memmap_size=70529M cpus=7,8
-INSMOD_CMD = f"insmod ./nvmev.ko memmap_start=82G memmap_size={memmapsize}M cpus=7,8"
-RMMOD_CMD = "rmmod nvmev"
-
-MKFS_DIR = "f2fs-tools-1.14.0/build/sbin"
-MKFS_CMD = f"./mkfs.f2fs {options} {DATA_DEVICE} {META_DEVICE}"
-# sudo ./mkfs.f2fs -f -c /dev/nvme2n2 /dev/nvme2n1
-# sudo ./mkfs.f2fs -f -m -c /dev/nvme2n2 /dev/nvme2n1
-
-# MOUNT_CMD = "mount -o age_extent_cache,discard /dev/nvme2n1 mnt"
-MOUNT_CMD = f"mount {META_DEVICE} mnt"
-UMOUNT_CMD = "umount mnt"
+# Configurations
+CONFIG_NAME = "block"
+LOG_DIR = f"log/fio_results/{CONFIG_NAME}"
+BS_LIST = [
+    "4k",
+    "8k",
+    "16k",
+    "32k",
+    "64k",
+    "128k",
+    "256k",
+    "512k",
+    "1M",
+    "2M",
+    "4M",
+    "8M",
+    "16M",
+]
+IO_RANGE = ["64m"]  # "4m", "64m"
+IODEPTHS = [1, 8, 32]
+MOUNT_CMD = "sudo python3 scripts/mount.py"
+UMOUNT_CMD = "sudo python3 scripts/umount.py"
+FIO_STATUS_INTERVAL = ""
 
 
-def prepare():
-    if os.path.exists(OUT_DIR):
-        print("The output folder exists, now empty all files in it")
-        os.system(f"rm -rf {OUT_DIR}")
+def run_shell_command(command, description, log_path=None):
+    """
+    Executes a Shell command.
+    If log_path is provided (for FIO commands), the output is displayed to the terminal
+    in real-time and written to the file simultaneously.
+    If log_path is not provided (for mount/umount/dmesg), the output is captured.
+    """
+    print(f"Running: {description} ({command})")
 
-    os.system(f"mkdir {OUT_DIR}")
+    if log_path:
+        print(
+            f"Note: The output of this command will be displayed in real-time on the terminal and logged to the file: {log_path}"
+        )
 
-    # compile
-    ret = os.system("make -j `nproc`")
-    if ret:
-        print("Compile Error")
-        return ret
+        # Use Popen to control the real-time stream
+        try:
+            # shell=True allows for command string with pipe, but we don't need tee anymore.
+            # We run the command directly.
+            # We use text=True (universal_newlines=True) for text mode.
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout stream
+                shell=True,
+                text=True,
+                bufsize=1,  # Line buffering
+            )
 
-    # copy configuration
-    os.system(f"cp ssd_config.h {OUT_DIR}/")
-    return 0
+            full_output = []
+
+            # Read and print output in real-time, while collecting it into the full_output list
+            for line in process.stdout:
+                print(line, end="", flush=True)
+                full_output.append(line)
+
+            process.wait()
+
+            if process.returncode != 0:
+                error_msg = f"Command failed with return code: {process.returncode}"
+                # In this mode, the actual error is already in full_output
+
+            else:
+                error_msg = ""  # Success
+
+            # Write the complete output content to the log file
+            with open(log_path, "w") as f:
+                f.writelines(full_output)
+
+            # Return empty strings for stdout/stderr because the output was already handled
+            return "", error_msg
+
+        except Exception as e:
+            error_msg = (
+                f"An unexpected error occurred while executing {command}: {str(e)}"
+            )
+            print(f"Error: {error_msg}")
+            return "", error_msg
+
+    else:
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True, shell=True, check=True
+            )
+            return result.stdout, result.stderr
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Command failed: {command}\nError message:\n{e.stderr}"
+            print(f"Error: {error_msg}")
+            return "", error_msg
+        except Exception as e:
+            error_msg = (
+                f"An unexpected error occurred while executing {command}: {str(e)}"
+            )
+            print(f"Error: {error_msg}")
+            return "", error_msg
 
 
-def process(testfunc, *args):
-    # insmod
-    os.system("dmesg -c > /dev/zero")
+def execute_fio_test_unit(task_name, fio_command, prefill_cmd="", filesystem=True):
+    """
+    Executes a single FIO test unit, including mount, FIO execution, unmount, and logging.
+    is_fio_command: Flag indicating if it is an FIO command; FIO command output is written to the FIO log file, others are not.
+    """
+    print("-" * 60)
+    print(f"Starting FIO Test Unit: {task_name}")
 
-    print(f"\ninsmod: {INSMOD_CMD}")
-    ret = os.system(INSMOD_CMD)
-    if ret:
-        print("Insmod Error")
-        return ret
-    os.system(f"dmesg > {OUT_DIR}/config")
-    os.system("dmesg -c > /dev/zero")
+    fio_log_path = os.path.join(LOG_DIR, f"{task_name}_fio_result.txt")
+    dmesg_log_path = os.path.join(LOG_DIR, f"{task_name}_dmesg_output.txt")
 
-    # mkfs.f2fs & mnt
-    os.chdir(MKFS_DIR)
-    print(f"\nmkfs: {MKFS_CMD}")
-    ret = os.system(f"{MKFS_CMD} > {WORK_DIR}/{OUT_DIR}/mkfs_info")
-    if ret:
-        print("mkfs.f2fs Error")
-        return ret
-    os.chdir(WORK_DIR)
+    if filesystem:
+        run_shell_command(MOUNT_CMD, "Mount filesystem")
+    else:
+        run_shell_command(MOUNT_CMD + " rawdevice", "Raw device test")
 
-    print(f"\nmount: {MOUNT_CMD}")
-    ret = os.system(MOUNT_CMD)
-    if ret:
-        print("mnt Error")
-        return ret
-    os.system(f"dmesg >> {OUT_DIR}/{args[0]}_mount_wlog")
-    os.system("dmesg -c > /dev/zero")
+    # 2. Clear dmesg buffer
+    run_shell_command("sudo dmesg -c", "Clear dmesg")
 
-    # test
-    ret = testfunc(*args)
-    if ret:
-        return ret
+    # 3.0 Execute prefill if needed
+    if prefill_cmd != "":
+        prefill_fio_log_path = os.path.join(
+            LOG_DIR, f"{task_name}_prefill_fio_result.txt"
+        )
+        prefill_dmesg_log_path = os.path.join(
+            LOG_DIR, f"{task_name}_prefill_dmesg_output.txt"
+        )
 
-    # umount
-    print("\numount: %s" % (UMOUNT_CMD))
-    os.system(UMOUNT_CMD)
+        print("\n--- Task Prefill ---")
+        prefill_stdout, prefill_stderr = run_shell_command(
+            prefill_cmd, f"FIO Command: {prefill_cmd}", log_path=prefill_fio_log_path
+        )
 
-    # rmmod
-    os.system("dmesg -c > /dev/zero")
-    print("\nrmmod: %s" % (RMMOD_CMD))
-    os.system(RMMOD_CMD)
-    os.system(
-        "echo '---------------Benchmark: %s -----------------' >> %s/ssd_statistic"
-        % (args[0], OUT_DIR)
-    )
-    os.system("dmesg >> %s/ssd_statistic" % (OUT_DIR))
-    return 0
+        prefill_dmesg_stdout, _ = run_shell_command(
+            "sudo dmesg -c", "Capture dmesg output"
+        )
 
-
-def fiofunc(*args):
-    kwargs = args[1]
-    # for read cmd
-    if kwargs["rw"] == "read" or kwargs["rw"] == "randread":
-        w_cmd = "fio --name=1 --filename=mnt/test --numjobs=1 --buffered=0 --rw=write --bs=128k --size=4g"
-        print("fio pre write: %s" % (w_cmd))
-        ret = os.system("cd %s && %s" % (WORK_DIR, w_cmd))
-        if ret:
-            return ret
-
-    if kwargs["conf"] == 0:
-        if kwargs["rw"] == "randread":
-            fio_args = "--name=1 --filename=mnt/test --numjobs={jobs} --buffered={buffered} --rw={rw} --bs={bs} --size={size} --io_size={io_size} --fsync={fsync} --norandommap={norandommap} --group_reporting".format(
-                jobs=kwargs["jobs"],
-                buffered=kwargs["buffered"],
-                rw=kwargs["rw"],
-                bs=kwargs["bs"],
-                size=kwargs["size"],
-                io_size=kwargs["io_size"],
-                fsync=kwargs["fsync"],
-                norandommap=kwargs["norandommap"],
+        if prefill_stderr:
+            print(
+                f"FIO command finished, potential errors (Please check {prefill_fio_log_path}）。"
             )
         else:
-            fio_args = "--name=1 --filename=mnt/test --numjobs={jobs} --buffered={buffered} --rw={rw} --bs={bs} --size={size} --io_size={io_size} --fsync={fsync} --random_distribution={random_distribution} --group_reporting".format(
-                jobs=kwargs["jobs"],
-                buffered=kwargs["buffered"],
-                rw=kwargs["rw"],
-                bs=kwargs["bs"],
-                size=kwargs["size"],
-                io_size=kwargs["io_size"],
-                fsync=kwargs["fsync"],
-                random_distribution=kwargs["random_distribution"],
+            print(
+                f"FIO command executed successfully, result written to: {prefill_fio_log_path}"
             )
+
+        with open(prefill_dmesg_log_path, "w") as f:
+            f.write(prefill_dmesg_stdout)
+        print(f"Prefill Dmesg result written to: {prefill_dmesg_log_path}")
+
+    # 3. Run FIO command
+    # fio_stdout/fio_stderr is now an error string or empty, not the command output
+    fio_stdout, fio_stderr = run_shell_command(
+        fio_command, f"FIO 命令: {fio_command}", log_path=fio_log_path
+    )
+
+    if filesystem:
+        run_shell_command(UMOUNT_CMD, "Unmount filesystem")
     else:
-        fio_args = "{workdir}/fioconfs/{conffile}".format(
-            workdir=WORK_DIR, conffile=kwargs["conffile"]
-        )
+        run_shell_command(UMOUNT_CMD + " rawdevice", "Unmount the emulator")
 
-    fio_cmd = "fio {args}".format(args=fio_args)
+    # 5. Capture dmesg (after Umount)
+    dmesg_stdout, _ = run_shell_command("sudo dmesg -c", "Capture dmesg output")
 
-    print("fio: %s" % (fio_cmd))
-    os.system("dmesg -c > /dev/zero")
-    ret = os.system(
-        "cd %s && (%s >> %s/%s_fio)" % (WORK_DIR, fio_cmd, OUT_DIR, args[0])
-    )
-    os.system(
-        'echo "\n--------------------NEW TEST---------------------\n" >> %s/%s_wlog'
-        % (OUT_DIR, args[0])
-    )
-    os.system("dmesg >> %s/%s_wlog" % (OUT_DIR, args[0]))
-    if ret:
-        print("Error in fiofunc")
-        return ret
-    return 0
-
-
-def fiofunc_aged(*args):
-    kwargs = args[1]
-    # create file
-    # sudo fio --name=1 --filename=mnt/test --numjobs=1 --buffered=0 --rw=write --bs=128k --size=1g
-    w_cmd = "fio --name=1 --filename=mnt/test --numjobs=1 --buffered=0 --rw=write --bs=512k --size={size}".format(
-        size=kwargs["size"]
-    )
-    print("fio pre write: %s" % (w_cmd))
-    # ret = os.system("cd %s && (%s >> %s/%s_pre-fio)" % (WORK_DIR,w_cmd,OUT_DIR,args[0]))
-    os.system("cd %s" % (WORK_DIR))
-    ret = os.system("%s" % (w_cmd))
-    os.system("dmesg >> %s/%s_prewrite_log" % (OUT_DIR, args[0]))
-    if ret:
-        print("Error in prewrite")
-        return ret
-
-    if sys.argv[1] == "zoned":
-        ret = os.system(
-            "blkzone report {data_device} > /dev/zero".format(data_device=DATA_DEVICE)
-        )
-        if ret:
-            print("Error in blkzone report")
-            return ret
-        os.system("dmesg >> %s/%s_prewrite_log" % (OUT_DIR, args[0]))
-
-    # overwrite
-    # fio --name=1 --filename=mnt/test --numjobs=1 --buffered=0 --rw=write --bs=4k --size=3960m --io_size=16g --overwrite=1 --norandommap
-    if kwargs["conf"] == 0:
-        fio_args = "--name=1 --filename=mnt/test --numjobs=1 --buffered=0 --rw=randwrite --bs=4k --size={size} --io_size=16g  --overwrite=1 --norandommap".format(
-            size=kwargs["size"]
-        )
+    # 6. Report FIO status
+    if fio_stderr:
+        print(f"FIO command finished, potential errors (Please check {fio_log_path}).")
     else:
-        fio_args = "{workdir}/fioconfs/{conffile}".format(
-            workdir=WORK_DIR, conffile=kwargs["conffile"]
+        print(f"FIO command executed successfully, result written to: {fio_log_path}")
+
+    # 7. Write dmesg log
+    with open(dmesg_log_path, "w") as f:
+        f.write(dmesg_stdout)
+    print(f"Dmesg result written to: {dmesg_log_path}")
+
+
+def task_a():
+    """Task A: sequential write"""
+    print("\n" * 3 + "=" * 80)
+    print("Starting Task A: Sequential Write")
+    print("=" * 80)
+    for bs in BS_LIST:
+        cpu_allowed = "--cpus_allowed=35"
+        size = 1024  # MiB
+        fio_cmd = (
+            f"sudo fio --name=A_{bs} --filename=mnt/test --buffered=0 "
+            f"--numjobs=1 --thread=1 --iodepth=1 --iodepth_batch_submit=1 "
+            f"--rw=write --bs={bs} --size={size}m --io_size=1g "
+            f"--ioengine=psync {FIO_STATUS_INTERVAL} --group_reporting {cpu_allowed} "
+            f"--output-format=json"
         )
-
-    fio_cmd = "fio {args}".format(args=fio_args)
-
-    print("fio: %s" % (fio_cmd))
-    os.system("dmesg -c > /dev/zero")
-    # ret = os.system("cd %s && (%s >> %s/%s_fio)" % (WORK_DIR,fio_cmd,OUT_DIR,args[0]))
-    os.chdir(WORK_DIR)
-    ret = os.system(f"{fio_cmd} 2>&1 | tee {OUT_DIR}/{args[0]}_fio")
-    os.system(
-        'echo "\n--------------------NEW TEST---------------------\n" >> %s/%s_wlog'
-        % (OUT_DIR, args[0])
-    )
-    os.system("dmesg >> %s/%s_wlog" % (OUT_DIR, args[0]))
-    if ret:
-        print("Error in fiofunc")
-        return ret
-    return 0
+        execute_fio_test_unit(f"A_{bs}", fio_cmd, filesystem=True)
 
 
-def sqlitefunc(*args):
-    kwargs = args[1]
-
-    mobibench_dir = "%s/Mobibench/shell/" % (WORK_DIR)
-    mobibench_cmd = "{dir}mobibench -p ./mnt/mobibench -d {db_mode} -n 1000000 -j {journal_mode} -s 2 -D 1 -T 1 -q".format(
-        dir=mobibench_dir,
-        db_mode=kwargs["db_mode"],
-        journal_mode=kwargs["journal_mode"],
-    )
-
-    print("mobibench: %s" % (mobibench_cmd))
-    os.system("dmesg -c > /dev/zero")
-    # ret = os.system("cd %s && (%s >> %s/%s_mobibench)" % (mobibench_dir,mobibench_cmd,OUT_DIR,args[0]))
-    # ret = os.system("(%s >> %s/%s_mobibench)" % (mobibench_cmd,OUT_DIR,args[0]))
-    # os.system("strace -fp $(pidof mobibench) -T -e trace=fdatasync -o {%s/%s_strace}" % (OUT_DIR,args[0]))
-    # strace_cmd = "strace -f -T -e trace=fdatasync -o {}/{}_strace".format(OUT_DIR, args[0])
-    strace_cmd = ""
-    mobibench_cmd_with_strace = "{} {}".format(strace_cmd, mobibench_cmd)
-
-    ret = os.system(
-        "({} >> {}/{}_mobibench)".format(mobibench_cmd_with_strace, OUT_DIR, args[0])
-    )
-
-    os.system(
-        'echo "\n--------------------NEW TEST---------------------\n" >> %s/%s_wlog'
-        % (OUT_DIR, args[0])
-    )
-    os.system("dmesg >> %s/%s_wlog" % (OUT_DIR, args[0]))
-    os.system(
-        'echo "\n--------------------db file size---------------------\n" >> %s/%s_wlog'
-        % (OUT_DIR, args[0])
-    )
-    os.system(
-        "stat %s/mnt/mobibench/test.db0_0 >>  %s/%s_wlog" % (WORK_DIR, OUT_DIR, args[0])
-    )
-    if ret:
-        print("Error in sqlitefunc")
-        return ret
-    return 0
-
-
-def exp():
-    block_size = ("4k", "8k", "16k", "32k", "64k", "128k", "256k", "512k")
-    benchmarks = {
-        "fio-aged-60": (fiofunc_aged, {"conf": 0, "size": "2458m"}),
-        "fio-aged-75": (fiofunc_aged, {"conf": 0, "size": "3455m"}),
-        # "fio-mot-gc":(fiofunc,{"conf":1,"conffile":"mot-gc.conf","rw":"randwrite"}),
-        # "fio-rw-MT":(fiofunc,{"conf":0,"jobs":4,"buffered":0,"rw":"randrw","bs":"4k","size":"7g",  "io_size":"7g","fsync":0,"random_distribution":"random"}),
-        #     "fio-zoned-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"randwrite","bs":"4k","size":"16g","io_size":"16g","fsync":0,"random_distribution":"zoned:60/10:30/20:8/30:2/40"}),
-        #     "fio-zipf-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"randwrite","bs":"4k","size":"16g","io_size":"16g","fsync":0,"random_distribution":"zipf:1.2"}),
-        #     "fio-normal-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"randwrite","bs":"4k","size":"16g","io_size":"16g","fsync":0,"random_distribution":"normal"}),
-        #     "fio-random-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"randwrite","bs":"4k","size":"16g","io_size":"16g","fsync":0,"random_distribution":"random"}),
-        #    "fio-seqw-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"write","bs":"512k","size":"16g","io_size":"16g","fsync":0,"random_distribution":"random"}),
-        #    "fio-seqw-MT":(fiofunc,{"conf":1,"conffile":"SeqW-MT.conf","rw":"write"}),
-        # #    "fio-randw-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"randwrite","bs":"4k","size":"16g","io_size":"16g","fsync":0,"random_distribution":"random"}),
-        #    "fio-randw-MT":(fiofunc,{"conf":1,"conffile":"RandW-MT.conf","rw":"randwrite"}),
-        #    "fio-fsync-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":1,"rw":"randwrite","bs":"4k","size":"16g","io_size":"16g","fsync":1,"random_distribution":"random"}),
-        #    "fio-fsync-MT":(fiofunc,{"conf":1,"conffile":"BufW-MT.conf","rw":"randwrite"}),
-        #    "fio-seqr-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"read","bs":"512k","size":"4g","io_size":"16g","fsync":0,"random_distribution":"random"}),
-        #    "fio-seqr-MT":(fiofunc,{"conf":0,"jobs":4,"buffered":0,"rw":"read","bs":"512k","size":"1g","io_size":"4g","fsync":0,"random_distribution":"random"}),
-        #    "fio-randr-ST":(fiofunc,{"conf":0,"jobs":1,"buffered":0,"rw":"randread","bs":"4k","size":"4g","io_size":"16g","fsync":0,"norandommap":1}),
-        #    "fio-randr-MT":(fiofunc,{"conf":0,"jobs":4,"buffered":0,"rw":"randread","bs":"4k","size":"1g",  "io_size":"4g","fsync":0,"norandommap":1}),
-        # "WAL-insert":(sqlitefunc,{'db_mode':0,"journal_mode":3}),
-        # "WAL-update":(sqlitefunc,{'db_mode':1,"journal_mode":3}),
-        # "RBJ_delete-insert":(sqlitefunc,{'db_mode':0,"journal_mode":0}),
-        # "RBJ_delete-update":(sqlitefunc,{'db_mode':1,"journal_mode":0}),
-        # "RBJ_truncate-insert":(sqlitefunc,{'db_mode':0,"journal_mode":1}),
-        # "RBJ_truncate-update":(sqlitefunc,{'db_mode':1,"journal_mode":1}),
-        # "RBJ_persistent-insert":(sqlitefunc,{'db_mode':0,"journal_mode":2}),
-        # "RBJ_persistent-update":(sqlitefunc,{'db_mode':1,"journal_mode":2}),
-    }
-
-    for bm in benchmarks:
-        kargs = benchmarks[bm][1]
-        if bm == "fio-seqw-ST" or bm == "fio-seqr-ST" or bm == "fio-seqr-MT":
-            for bs in block_size:
-                kargs["bs"] = bs
-                ret = process(benchmarks[bm][0], bm, kargs)
-                if ret:
-                    return ret
-        elif bm == "fio-seqw-MT":
-            for bs in block_size:
-                kargs["conffile"] = "seqw-mt/{}.conf".format(bs)
-                ret = process(benchmarks[bm][0], bm, kargs)
-                if ret:
-                    return ret
+def task_b():
+    """Task B: random read"""
+    print("\n" * 3 + "=" * 80)
+    print("Starting Task B: Random Read")
+    print("=" * 80)
+    for iosize in IO_RANGE:
+        cpu_allowed = "--cpus_allowed=35"
+        if CONFIG_NAME == "conzone":
+            zonemode = "--zonemode=zbd"
+            size = "8z"
         else:
-            if bm == "fio-aged-60":
-                if sys.argv[1] == "zoned":
-                    kargs["size"] = "2073m"
-                else:
-                    kargs["size"] = "2376m"
-            if bm == "fio-aged-75":
-                if sys.argv[1] == "zoned":
-                    kargs["size"] = "2591m"
-                else:
-                    kargs["size"] = "2970m"
-            if bm == "fio-aged-90":
-                if sys.argv[1] == "zoned":
-                    kargs["size"] = "3110m"
-                else:
-                    kargs["size"] = "3564m"
-            if bm == "fio-aged-100":
-                if sys.argv[1] == "zoned":
-                    kargs["size"] = "3455m"
-                else:
-                    kargs["size"] = "3960m"
-
-            ret = process(benchmarks[bm][0], bm, kargs)
-            if ret:
-                return ret
-        # break
+            zonemode = ""
+            size = "4224m"
+        prefill_cmd = (
+            f"sudo fio --name=B_prefill_{iosize} --filename=/dev/nvme2n2 --buffered=0 "
+            f"--numjobs=1 --thread=1 --iodepth=1 --iodepth_batch_submit=1 "
+            f"--rw=write --bs=192k --size={size} {zonemode} "
+            f"--ioengine=psync {FIO_STATUS_INTERVAL} --group_reporting {cpu_allowed} "
+        )
+        fio_cmd = (
+            f"sudo fio --name=B_{iosize} --filename=/dev/nvme2n2 --buffered=0 "
+            f"--numjobs=1 --thread=1 --iodepth=1 --iodepth_batch_submit=1 "
+            f"--rw=randread --bs=4k --size={iosize} --io_size=4g {zonemode} "
+            f"--ioengine=psync {FIO_STATUS_INTERVAL} --group_reporting {cpu_allowed} "
+        )
+        execute_fio_test_unit(
+            f"B_{iosize}", fio_cmd, filesystem=False, prefill_cmd=prefill_cmd
+        )
 
 
-# Usage: python3 exp.py [block/zoned] [scheme_name]
+def main():
+    """Main function: set up environment and run all tasks."""
+    # Ensure the log directory exists
+    os.makedirs(LOG_DIR, exist_ok=True)
+    print(f"Log directory '{LOG_DIR}' is ready.")
+    print(
+        "Note: The script executes all commands with 'sudo', please ensure you have the necessary permissions."
+    )
+    if os.geteuid() != 0:
+        print(
+            "❌ WARNING: Your I/O commands typically require root privileges. Please run this script using 'sudo python3 xxx.py'."
+        )
+        return
+
+    # Execute all tasks
+    task_b()
+
+    print("\n" * 3 + "=" * 80)
+    print("All tasks completed.")
+    print(f"All log files are saved in the '{LOG_DIR}/' directory.")
+    print("=" * 80)
+
+
 if __name__ == "__main__":
-    os.chdir(WORK_DIR)
-    ret = prepare()
-    if ret == 0:
-        r = exp()
+    main()

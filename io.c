@@ -9,13 +9,14 @@
 #include "nvmev.h"
 #include "dma.h"
 
-#if (SUPPORTED_SSD_TYPE(CONV) || SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(CONZONE_ZONED) ||   \
+#if (SUPPORTED_SSD_TYPE(CONV) || SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(CONZONE_ZONED) || \
 	 SUPPORTED_SSD_TYPE(CONZONE_BLOCK) || SUPPORTED_SSD_TYPE(CONZONE_META))
 #include "ssd.h"
 #else
 struct buffer;
 #endif
 
+// #define PERF_DEBUG 1
 #undef PERF_DEBUG
 
 #define sq_entry(entry_id) sq->sq[SQ_ENTRY_TO_PAGE_NUM(entry_id)][SQ_ENTRY_TO_PAGE_OFFSET(entry_id)]
@@ -313,6 +314,10 @@ static void __enqueue_io_req(int sqid, int cqid, int sq_entry, unsigned long lon
 	mb(); /* IO worker shall see the updated w at once */
 
 	__insert_req_sorted(entry, worker, ret->nsecs_target);
+
+	// trace_printk("[i] curr %u start: %llu , target: %llu target lat %llu us\n", entry, w->nsecs_start, w->nsecs_target, (w->nsecs_target - w->nsecs_start) / 1000);
+
+	wake_up_process(worker->task_struct);
 }
 
 void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
@@ -346,6 +351,10 @@ void schedule_internal_operation(int sqid, unsigned long long nsecs_target,
 	mb(); /* IO worker shall see the updated w at once */
 
 	__insert_req_sorted(entry, worker, nsecs_target);
+
+	// trace_printk("[i] curr %u buffer ns type %d start: %llu , target: %llu target lat %llu us\n", entry, write_buffer->ns_type, w->nsecs_start, w->nsecs_target, (w->nsecs_target - w->nsecs_start) / 1000);
+
+	wake_up_process(worker->task_struct);
 }
 
 static void __reclaim_completed_reqs(void)
@@ -624,7 +633,7 @@ static int nvmev_io_worker(void *data)
 
 			if (w->nsecs_target <= curr_nsecs) {
 				if (w->is_internal) {
-#if (SUPPORTED_SSD_TYPE(CONV) || SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(CONZONE_ZONED) ||   \
+#if (SUPPORTED_SSD_TYPE(CONV) || SUPPORTED_SSD_TYPE(ZNS) || SUPPORTED_SSD_TYPE(CONZONE_ZONED) || \
 	 SUPPORTED_SSD_TYPE(CONZONE_BLOCK) || SUPPORTED_SSD_TYPE(CONZONE_META))
 					buffer_release((struct buffer *)w->write_buffer, w->buffs_to_release);
 #endif
@@ -634,6 +643,19 @@ static int nvmev_io_worker(void *data)
 
 				NVMEV_DEBUG_VERBOSE("%s: completed %u, %d %d %d\n", worker->thread_name, curr,
 									w->sqid, w->cqid, w->sq_entry);
+
+				// if (((w->nsecs_target - w->nsecs_start > 500000))) {
+				// 	trace_printk("FLASH IO! is_internal %d submit lat %lld us (Target set late: %llu us True lat: %llu)\n", w->is_internal,
+				// 				 ((local_clock() + delta) - w->nsecs_start) / 1000, (w->nsecs_target - w->nsecs_start) / 1000, ((local_clock() + delta) - w->nsecs_start) / 1000);
+				// }
+				// if (w->is_internal) {
+				// 	u64 local_time = local_clock() + delta;
+				// 	trace_printk("[c] curr %u buffer %p complete: %llu , lat %llu us\n", curr, w->write_buffer, local_time, (local_time - w->nsecs_start) / 1000);
+				// }
+				// if (!w->is_internal) {
+				// 	u64 local_time = local_clock() + delta;
+				// 	trace_printk("[c] curr %u complete: %llu target: %llu , lat %llu us\n", curr, local_time, w->nsecs_target, (local_time - w->nsecs_start) / 1000);
+				// }
 
 #ifdef PERF_DEBUG
 				w->nsecs_cq_filled = local_clock() + delta;
