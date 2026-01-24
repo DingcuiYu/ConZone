@@ -122,7 +122,7 @@ Configuration Option Reference:
 
 #### Step 2: Load the Module
 The script will output a summary and an insmod command at the end, for example:
-```toml
+```bash
 ----------------------------------
 Summary:
   Prototype: conzone
