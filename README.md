@@ -106,23 +106,14 @@ Follow the interactive prompts to modify `ssd_config.h`.
 
 Configuration Option Reference:
 
-|  Prompt |  Corresponding to the option following ``#elif (BASE_SSD == CONZONE_PROTOTYPE)` ` `in `ssd_config.h`` |  Meaning or Effect |
+
+|  Prompt |  Corresponding to the option following `#elif (BASE_SSD == CONZONE_PROTOTYPE)` in `ssd_config.h` |  Meaning or Effect |
 | --- | --- | --- |
-|  Select prototype (conzone/zns) [default: conzone]: |  None. Corresponds to the `Kbuild` directive `: # Select one of the targets to build`,
- `CONFIG_NVMEVIRT_CONZONE := y` for conzone;
- `CONFIG_NVMEVIRT_ZNS := y` for zns |  Use storage prototype |
-|  Memmap start address [default: 102G]: |  None. Corresponds to the starting address of reserved memory in `/etc/default/grub`. For example, if ` `GRUB_CMDLINE_LINUX="memmap=79G\\\$82G isolcpus=7,8"` `, the starting address is 82G |  NVMeVirt requires determining the memory location for simulation. The script automatically reads `/etc/default/grub` to obtain the default value |
-|  Flash type (TLC/QLC) [default: TLC]:  | `CELL_MODE`:
- `CELL_MODE_TLC`: TLC
- `CELL_MODE_QLC`: QLC
- |  Affects flash block size, zone size, and zone capacity.
-The ZNS protocol prohibits zone sizes that are not powers of 2. Using TLC may cause block sizes to violate this constraint. |
-|  Interface type (block/zoned) [default: zoned]:  | `NS_SSD_TYPE_1`:
- `SSD_TYPE_CONZONE_BLOCK`: block
- `SSD_TYPE_CONZONE_ZONED`: zone |  Interface type for the data area. Setting block interface enables comparison. |
-|  Block size [default: 33M]:  | `BLK_SIZE`:
- `MB(24ULL)`: default size for TLC
- `MB(32ULL)`: default size for QLC |  Flash block size |
+|  Select prototype (conzone/zns) [default: conzone]: |  None. Corresponds to the `Kbuild` directive `: # Select one of the targets to build`,   `CONFIG_NVMEVIRT_CONZONE := y` for conzone;`CONFIG_NVMEVIRT_ZNS := y` for zns |  Use storage prototype |
+|  Memmap start address [default: 102G]: |  None. Corresponds to the starting address of reserved memory in `/etc/default/grub`. For example, if ` `GRUB_CMDLINE_LINUX="memmap=79G\\\$82G isolcpus=7,8", the starting address is 82G |  NVMeVirt requires determining the memory location for simulation. The script automatically reads `/etc/default/grub` to obtain the default value
+|  Flash type (TLC/QLC) [default: TLC]:  | `CELL_MODE`: <br /> `CELL_MODE_TLC`: TLC <br /> `CELL_MODE_QLC`: QLC |  Affects flash block size, zone size, and zone capacity. The ZNS protocol prohibits zone sizes that are not powers of 2. Using TLC may cause block sizes to violate this constraint. |
+|  Interface type (block/zoned) [default: zoned]:  | `NS_SSD_TYPE_1`: <br /> `SSD_TYPE_CONZONE_BLOCK`: block <br /> `SSD_TYPE_CONZONE_ZONED`: zone |  Interface type for the data area. Setting block interface enables comparison. |
+|  Block size [default: 33M]:  | `BLK_SIZE`: <br /> `MB(66ULL)`: default size for TLC <br /> `MB(68ULL)`: default size for QLC |  Flash block size |
 |  Planes per Superblock (Parallelism) [default: 16]: | `PLNS_PER_ZONE` : i.e., `DIES_PER_ZONE` * `PLNS_PER_LUN` |  Determines zone capacity |
 |  pSLC superblocks for data [default: 4]:  | `DATA_pSLC_INIT_BLKS`  |  Number of superblocks for SLC buffers in namespace 1 (data zone). Note that the SLC superblock size is 1/3 that of TLC superblocks and 1/4 that of QLC superblocks. |
 |  Data namespace size [default: 32G]:  |  None, must be entered manually |  Size of the user-visible disk (data zone) |
