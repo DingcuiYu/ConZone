@@ -2,8 +2,8 @@ import subprocess
 import os
 
 # Configurations
-CONFIG_NAME = "block"
-LOG_DIR = f"log/fio_results/{CONFIG_NAME}"
+CONFIG_NAME = "conzone"
+LOG_DIR = f"log/fio_results-raw/{CONFIG_NAME}"
 BS_LIST = [
     "4k",
     "8k",
@@ -11,16 +11,16 @@ BS_LIST = [
     "32k",
     "64k",
     "128k",
-    "256k",
-    "512k",
-    "1M",
-    "2M",
-    "4M",
-    "8M",
-    "16M",
 ]
+# "256k",
+# "512k",
+# "1M",
+# "2M",
+# "4M",
+# "8M",
+# "16M",
 IO_RANGE = ["64m"]  # "4m", "64m"
-IODEPTHS = [1, 8, 32]
+IODEPTHS = [1, 4, 8, 16, 32, 64]
 MOUNT_CMD = "sudo python3 scripts/mount.py"
 UMOUNT_CMD = "sudo python3 scripts/umount.py"
 FIO_STATUS_INTERVAL = ""
@@ -185,13 +185,13 @@ def task_a():
     print("=" * 80)
     for bs in BS_LIST:
         cpu_allowed = "--cpus_allowed=35"
-        size = 1024  # MiB
+        size = 512  # MiB
         fio_cmd = (
             f"sudo fio --name=A_{bs} --filename=mnt/test --buffered=0 "
             f"--numjobs=1 --thread=1 --iodepth=1 --iodepth_batch_submit=1 "
-            f"--rw=write --bs={bs} --size={size}m --io_size=1g "
+            f"--rw=write --bs={bs} --size={size}m --io_size=512m "
             f"--ioengine=psync {FIO_STATUS_INTERVAL} --group_reporting {cpu_allowed} "
-            f"--output-format=json"
+            # f"--output-format=json"
         )
         execute_fio_test_unit(f"A_{bs}", fio_cmd, filesystem=True)
 
@@ -226,6 +226,67 @@ def task_b():
         )
 
 
+def task_c():
+    """Task C: 4K sequential direct write with varying threads and queue depths."""
+    print("\n" * 3 + "=" * 80)
+    print("Starting Task C: 4K Sequential Direct Write")
+    print("=" * 80)
+
+    thread_counts = [1, 2, 4, 8]
+    runtime_sec = 300
+    file_size = "2g"
+    io_size = "8g"
+    bs = "4k"
+    filename = "mnt/test"
+    cpu_allowed = "--cpus_allowed=29-36 --cpus_allowed_policy=split"
+
+    for threads in thread_counts:
+        for iodepth in IODEPTHS:
+            fio_cmd = (
+                f"sudo fio --name=C_t{threads}_qd{iodepth} --filename={filename} "
+                f"--direct=1 --buffered=0 --numjobs={threads} --thread=1 "
+                f"--iodepth={iodepth} --iodepth_batch_submit={iodepth} "
+                f"--rw=write --bs={bs} --size={file_size} --io_size={io_size} "
+                f"--time_based --runtime={runtime_sec} --ioengine=io_uring "
+                f"{FIO_STATUS_INTERVAL} --group_reporting {cpu_allowed} "
+            )
+            execute_fio_test_unit(f"C_t{threads}_qd{iodepth}", fio_cmd, filesystem=True)
+
+
+def task_d():
+    """Task D: 4K sequential direct write with varying threads and queue depths."""
+    print("\n" * 3 + "=" * 80)
+    print("Starting Task D: 4K Sequential Direct Write (raw device)")
+    print("=" * 80)
+
+    thread_counts = [1, 2, 4, 8]
+    runtime_sec = 300
+    file_size = "2g"
+    io_size = "8g"
+    bs = "4k"
+    filename = "/dev/nvme2n2"
+    cpu_allowed = "--cpus_allowed=29-36 --cpus_allowed_policy=split"
+
+    if CONFIG_NAME == "conzone":
+        zonemode = "--zonemode=zbd"
+    else:
+        zonemode = ""
+
+    for threads in thread_counts:
+        for iodepth in IODEPTHS:
+            fio_cmd = (
+                f"sudo fio --name=D_t{threads}_qd{iodepth} --filename={filename} "
+                f"--direct=1 --buffered=0 --numjobs={threads} --thread=1 "
+                f"--iodepth={iodepth} --iodepth_batch_submit={iodepth} "
+                f"--rw=write --bs={bs} --size={file_size} --io_size={io_size} "
+                f"--time_based --runtime={runtime_sec} --ioengine=io_uring {zonemode}"
+                f"{FIO_STATUS_INTERVAL} --group_reporting {cpu_allowed} "
+            )
+            execute_fio_test_unit(
+                f"D_t{threads}_qd{iodepth}", fio_cmd, filesystem=False
+            )
+
+
 def main():
     """Main function: set up environment and run all tasks."""
     # Ensure the log directory exists
@@ -241,7 +302,7 @@ def main():
         return
 
     # Execute all tasks
-    task_b()
+    task_d()
 
     print("\n" * 3 + "=" * 80)
     print("All tasks completed.")

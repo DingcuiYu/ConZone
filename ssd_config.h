@@ -363,6 +363,7 @@ enum wb_strategy {
 	WB_MOD = 1,	   // write buffer [i] = zid % nr_wb
 };
 #define WB_MGNT (WB_STATIC)
+#define WB_FLUSH_TIMEWINDOW (320000) // ns, 0 means no time-based flush
 
 #define GLOBAL_WB_SIZE (0)
 #define WRITE_EARLY_COMPLETION 1

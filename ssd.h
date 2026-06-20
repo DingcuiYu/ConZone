@@ -193,8 +193,10 @@ struct buffer {
 	uint32_t sqid;	// for flush
 	bool busy;
 	size_t flush_data;
-	size_t capacity; // avaliable buffer size
-	uint64_t time;	 // for flush bandwidth
+	size_t capacity;			// avaliable buffer size
+	uint64_t time;				// for flush bandwidth
+	uint64_t newdata_timestamp; // for time-based flush
+	uint64_t flush_timestamp;	// for time-based flush (unit: ns)
 };
 
 /*

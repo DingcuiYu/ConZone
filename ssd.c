@@ -26,6 +26,8 @@ void buffer_init(struct buffer *buf, size_t size)
 	buf->busy = false;
 	buf->flush_data = 0;
 	buf->time = 0;
+	buf->flush_timestamp = 0;
+	buf->newdata_timestamp = 0;
 }
 
 uint32_t buffer_allocate(struct buffer *buf, size_t size)

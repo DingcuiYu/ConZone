@@ -1,7 +1,7 @@
 import os
 import sys
 
-WORK_DIR = "/home/lab/mnt/home/lab/ydc/emulators/public/ConZone"
+WORK_DIR = "./"
 
 RMMOD_CMD = "sudo rmmod nvmev"
 UMOUNT_CMD = "sudo umount mnt"

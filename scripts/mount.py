@@ -1,7 +1,7 @@
 import os
 import sys
 
-WORK_DIR = "/home/lab/mnt/home/lab/ydc/emulators/public/ConZone"
+WORK_DIR = "./"
 
 META_DEVICE = "/dev/nvme2n1"
 DATA_DEVICE = "/dev/nvme2n2"

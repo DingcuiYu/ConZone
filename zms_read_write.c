@@ -1428,6 +1428,8 @@ static void mark_line_free(struct zms_ftl *zms_ftl, struct zms_line *line, int i
 
 		if (io_type != MIGRATE_IO && !is_active) {
 			if (line->mid.pos) {
+				pqueue_remove(zms_ftl->migrating_line_pq,
+							  &line->mid); // migrate line is removed in try_migrate
 				line->mid.pos = 0;
 				line->mid.write_order = 0;
 			}
@@ -2826,6 +2828,7 @@ uint64_t buffer_flush(struct zms_ftl *zms_ftl, struct buffer *write_buffer, uint
 	write_buffer->pgs = 0;
 	write_buffer->zid = -1;
 	write_buffer->time = nsecs_latest;
+	write_buffer->flush_timestamp = nsecs_latest;
 	return nsecs_latest;
 }
 
@@ -2958,7 +2961,9 @@ static bool handle_write_request(struct zms_ftl *zms_ftl, struct nvmev_request *
 
 	// lock_wait_time += (cpu_clock(zms_ftl->ssd->cpu_nr_dispatcher) - zms_ftl->last_stime);
 	// NVMEV_INFO("ns %d get write buffer (%p) curr lpn %lld pgs %lld\n", zms_ftl->zp.ns->id, write_buffer, slpn, elpn - slpn + 1);
+	int flushed = 0;
 	for (lpn = slpn; lpn <= elpn; lpn += pgs) {
+		flushed = 0;
 		pgs = min(elpn - lpn + 1, (uint64_t)(write_buffer->tt_lpns - write_buffer->pgs));
 
 		uint64_t *lpns = NULL;
@@ -3017,9 +3022,10 @@ static bool handle_write_request(struct zms_ftl *zms_ftl, struct nvmev_request *
 
 		/* Aggregate write io or unaligned io*/
 		//|| lpn + pgs >= elpn
-		if (write_buffer->flush_data == write_buffer->capacity) {
+		if (write_buffer->flush_data == write_buffer->capacity || (WB_FLUSH_TIMEWINDOW && write_buffer->newdata_timestamp > write_buffer->flush_timestamp && write_buffer->newdata_timestamp - write_buffer->flush_timestamp > WB_FLUSH_TIMEWINDOW)) {
 			uint64_t nsecs_completed = buffer_flush(zms_ftl, write_buffer, nsecs_xfer_completed);
 			nsecs_latest = max(nsecs_completed, nsecs_latest);
+			flushed = 1;
 		}
 		if (zms_ftl->device_full || zms_ftl->pslc_full)
 			break;
@@ -3044,6 +3050,9 @@ out:
 		ret->nsecs_target = nsecs_xfer_completed;
 
 	if (write_buffer) {
+		if (flushed == 0) {
+			write_buffer->newdata_timestamp = nsecs_xfer_completed;
+		}
 		schedule_internal_operation(req->sq_id, nsecs_latest, write_buffer, 0);
 		NVMEV_CONZONE_RW_DEBUG("w nsid %d write buffer lat %lld us dest release in %lld us \n",
 							   zms_ftl->zp.ns->id, (nsecs_latest - zms_ftl->last_stime) / 1000,
