@@ -142,23 +142,63 @@ static struct zms_line *get_line(struct zms_ftl *zms_ftl, struct ppa *ppa)
 static uint64_t ppa_2_pgidx(struct zms_ftl *zms_ftl, struct ppa *ppa)
 {
 	struct ssdparams *spp = &zms_ftl->ssd->sp;
+	struct zms_line_mgmt *lm = &zms_ftl->lm;
 	struct zms_line *line = get_line(zms_ftl, ppa);
-	uint64_t lineid = (line->parent_id == -1) ? line->id : line->parent_id;
-	uint64_t pgidx;
+	struct nand_block *blk = get_blk(zms_ftl->ssd, ppa);
 
-	// Mapped as interleave, but does not represent the actual address iterations
+	if (line->parent_id == -1) {
+		uint64_t base = (uint64_t)line->id * line->pgs_per_line;
 
-	pgidx = lineid * line->pgs_per_line;
-	pgidx += (ppa->zms.pg / spp->pgs_per_oneshotpg) *
-			 (spp->pgs_per_oneshotpg * spp->nchs * spp->luns_per_ch * spp->pls_per_lun);
+		int pgs_per_flashpg =
+			(blk->nand_type == CELL_MODE_SLC)
+				? spp->pslc_pgs_per_flashpg
+				: spp->pgs_per_flashpg;
 
-	uint64_t parallel_idx = ppa->zms.lun * (spp->nchs * spp->pls_per_lun) +
-							ppa->zms.ch * spp->pls_per_lun + ppa->zms.pl;
-	pgidx += parallel_idx * spp->pgs_per_oneshotpg;
+		int rows_per_line = (spp->tt_luns / spp->line_groups) / spp->nchs;
+		int base_lun = (ppa->zms.lun / rows_per_line) * rows_per_line;
+		int lun_off = ppa->zms.lun - base_lun;
 
-	// pg offset
-	pgidx += ppa->zms.pg % spp->pgs_per_oneshotpg;
-	return pgidx;
+		uint64_t parallel =
+			(uint64_t)lun_off * spp->nchs * spp->pls_per_lun +
+			(uint64_t)ppa->zms.ch * spp->pls_per_lun +
+			ppa->zms.pl;
+
+		uint64_t stripe =
+			(uint64_t)pgs_per_flashpg *
+			rows_per_line *
+			spp->nchs *
+			spp->pls_per_lun;
+
+		uint64_t off =
+			(ppa->zms.pg / pgs_per_flashpg) * stripe +
+			parallel * pgs_per_flashpg +
+			(ppa->zms.pg % pgs_per_flashpg);
+
+		if (off >= line->pgs_per_line) {
+			NVMEV_ERROR("ppa_2_pgidx overflow line(%d,%d) off %llu line_pgs %lu "
+						"ppa ch %d lun %d pl %d blk %d pg %d\n",
+						line->parent_id, line->id, off, line->pgs_per_line,
+						ppa->zms.ch, ppa->zms.lun, ppa->zms.pl,
+						ppa->zms.blk, ppa->zms.pg);
+		}
+
+		return base + off;
+	}
+
+	/*
+	 * subline: one concrete block/plane. The parent line owns the rmap range,
+	 * and subline id selects the block inside that parent line.
+	 */
+	struct zms_line *parent = &lm->lines[line->parent_id];
+	uint64_t base = (uint64_t)parent->id * parent->pgs_per_line;
+	uint64_t off = (uint64_t)line->id * line->pgs_per_line + ppa->zms.pg;
+
+	if (off >= parent->pgs_per_line) {
+		NVMEV_ERROR("ppa_2_pgidx subline overflow parent %d sub %d off %llu parent_pgs %lu\n",
+					parent->id, line->id, off, parent->pgs_per_line);
+	}
+
+	return base + off;
 }
 
 static bool flashpage_same(struct zms_ftl *zms_ftl, struct ppa ppa1, struct ppa ppa2)
