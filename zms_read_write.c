@@ -2344,6 +2344,7 @@ static void try_migrate(struct zms_ftl *zms_ftl)
 					lm->lines[i].ipc == lm->lines[i].pgs_per_line) {
 					NVMEV_CONZONE_GC_DEBUG("try direct earse line %d pgs per line %ld\n", i,
 										   lm->lines[i].pgs_per_line);
+					erase_line(zms_ftl, &lm->lines[i], eio_type);
 					if (!direct_erase)
 						direct_erase = 1;
 				}
