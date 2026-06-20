@@ -36,7 +36,6 @@ static inline bool valid_lpn(struct zms_ftl *zms_ftl, uint64_t lpn)
 static int get_page_location(struct zms_ftl *zms_ftl, struct ppa *ppa)
 {
 	if (!mapped_ppa(ppa)) {
-		NVMEV_ERROR("ppa unmapped! return location type -1\n");
 		return -1;
 	}
 	struct ssd *ssd = zms_ftl->ssd;
@@ -251,7 +250,11 @@ struct pqueue_t *zms_get_victim_pq(struct zms_ftl *zms_ftl, int location)
 	case LOC_PSLC:
 		victim_pq = lm->pslc_victim_line_pq;
 		break;
+	case LOC_NORMAL:
+		victim_pq = lm->victim_line_pq;
+		break;
 	default:
+		NVMEV_ERROR("%s Invalid location:%d mark victim = normal\n", __func__, location);
 		victim_pq = lm->victim_line_pq;
 		break;
 	}
@@ -416,10 +419,10 @@ void print_agg(struct zms_ftl *zms_ftl, int agg_len, uint64_t *agg_lpns)
 		uint64_t lpn = agg_lpns[i];
 		struct ppa ppa = get_maptbl_ent(zms_ftl, lpn);
 		if (mapped_ppa(&ppa)) {
-			NVMEV_INFO("lpn %lld -> ch %d lun %d pl %d blk %d pg %d\n", lpn, ppa.zms.ch,
+			NVMEV_INFO("[agg] lpn %lld -> ch %d lun %d pl %d blk %d pg %d\n", lpn, ppa.zms.ch,
 					   ppa.zms.lun, ppa.zms.pl, ppa.zms.blk, ppa.zms.pg);
 		} else {
-			NVMEV_INFO("lpn %lld -> UNMAPPED PPA\n", lpn);
+			NVMEV_INFO("[agg] lpn %lld -> UNMAPPED PPA\n", lpn);
 		}
 	}
 	NVMEV_INFO("------------%s--------------\n", __func__);
@@ -800,10 +803,10 @@ struct ppa get_current_page(struct zms_ftl *zms_ftl, struct zms_write_pointer *w
 	ppa.zms.blk = wp->blk;
 	ppa.zms.pg = wp->pg;
 
-	int loc = get_page_location(zms_ftl, &ppa);
 	if (ppa_2_pgidx(zms_ftl, &ppa) >= zms_ftl->zp.tt_ppns) {
 		print_ppa(ppa);
 		NVMEV_ERROR("%s ppa_2_pgidx(zms_ftl,&ppa) %lld >= zms_ftl->zp.tt_ppns %lld\n", __func__, ppa_2_pgidx(zms_ftl, &ppa), zms_ftl->zp.tt_ppns);
+		int loc = get_page_location(zms_ftl, &ppa);
 		if (loc == LOC_PSLC)
 			zms_ftl->pslc_full = 1;
 		else
@@ -878,11 +881,8 @@ static void nextpage_interleave(struct zms_ftl *zms_ftl, struct ppa *ppa)
 	if (!mapped_ppa(ppa))
 		return;
 	struct ssdparams *spp = &zms_ftl->ssd->sp;
-	int location = get_page_location(zms_ftl, ppa);
 	struct nand_block *blk = get_blk(zms_ftl->ssd, ppa);
 	int rows_per_line = (spp->tt_luns / spp->line_groups) / spp->nchs;
-	// int pgs_per_oneshotpg =
-	// 	location == LOC_PSLC ? spp->pslc_pgs_per_oneshotpg : spp->pgs_per_oneshotpg;
 	int pgs_per_flashpg = spp->pgs_per_flashpg;
 
 	check_addr(ppa->zms.pg, blk->used_pgs);
@@ -948,13 +948,16 @@ static void init_write_pointer(struct zms_ftl *zms_ftl, uint32_t io_type, int lo
 	struct ssdparams *spp = &zms_ftl->ssd->sp;
 
 	NVMEV_ASSERT(wp);
-	NVMEV_ASSERT(curline);
 
 	/* wp->curline is always our next-to-write super-block */
 	*wp = (struct zms_write_pointer){
 		.curline = curline,
 		.loc = location,
 	};
+	if (!curline) {
+		NVMEV_ERROR("stack info: %s io type %d loc %d \n", __func__, io_type, location);
+		return;
+	}
 	struct ppa ppa = get_first_page(zms_ftl, curline);
 	update_write_pointer(wp, ppa);
 
@@ -1034,8 +1037,6 @@ static struct ppa get_advanced_ppa_fast(struct zms_ftl *zms_ftl, struct ppa star
 	}
 
 	// Case B: Interleaved Line (Superblock) - Mixed Radix Caculation
-	int location = get_page_location(zms_ftl, &start_ppa);
-	// int pgs_per_oneshot = (location == LOC_PSLC) ? spp->pslc_pgs_per_oneshotpg : spp->pgs_per_oneshotpg;
 	int pgs_per_flashpg = spp->pgs_per_flashpg;
 
 	// Multiple dimension: PG_LOW -> PL -> CH -> LUN -> PG_HIGH
@@ -1102,6 +1103,12 @@ static struct ppa get_new_page(struct zms_ftl *zms_ftl, uint32_t io_type, int lo
 
 	if (!wp->curline) {
 		init_write_pointer(zms_ftl, io_type, location);
+		if (!wp->curline) {
+			NVMEV_ERROR("stack info: %s io type %d loc %d \n", __func__, io_type, location);
+			struct ppa ppa;
+			ppa.ppa = UNMAPPED_PPA;
+			return ppa;
+		}
 	}
 	return get_current_page(zms_ftl, wp);
 }
@@ -1201,7 +1208,7 @@ static void mark_page_invalid(struct zms_ftl *zms_ftl, struct ppa *ppa)
 					line->pgs_per_line);
 		// NVMEV_ASSERT(0);
 	}
-	if (line->vpc == line->pgs_per_line) {
+	if (line->vpc + line->rpc == line->pgs_per_line) {
 		if (line->ipc) {
 			NVMEV_ERROR(" full line ipc should be 0!\n");
 			// NVMEV_ASSERT(0);
@@ -1295,9 +1302,11 @@ static void set_map_gran(struct zms_ftl *zms_ftl, int gran, uint64_t map_slpn)
 	NVMEV_CONZONE_L2P_DEBUG("set map : lpn %lld gran %d res %d\n", map_slpn, gran, is_resident);
 }
 
-static int get_mapping_granularity(struct zms_ftl *zms_ftl, int loc)
+static int get_mapping_granularity(struct zms_ftl *zms_ftl, int loc, int io_type)
 {
 	if (!is_zoned(zms_ftl->zp.ns_type))
+		return PAGE_MAP;
+	if (io_type != USER_IO)
 		return PAGE_MAP;
 	if (loc == LOC_NORMAL)
 		return ZONE_MAP;
@@ -1466,14 +1475,19 @@ static inline void consume_write_credit(struct zms_ftl *zms_ftl, int location)
 
 static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int loc, int io_type)
 {
-	int granularity = get_mapping_granularity(zms_ftl, loc);
+	int granularity = get_mapping_granularity(zms_ftl, loc, io_type);
 	struct ppa ppa = get_prev_ppa(zms_ftl, lpn, granularity);
 	if (!mapped_ppa(&ppa)) {
+		if (lpn != get_granularity_start_lpn(zms_ftl, lpn, granularity))
+			NVMEV_ERROR("current lpn %lld prev ppa (ch %d lun %d pl %d blk %d pg %d | is rsv? %d) is not mapped \n", lpn, ppa.zms.ch,
+						ppa.zms.lun, ppa.zms.pl, ppa.zms.blk, ppa.zms.pg, IS_RSV_PPA(ppa));
 		return FAILURE;
 	}
 
-	if (!IS_RSV_PPA(zms_ftl->maptbl[lpn]))
+	if (!IS_RSV_PPA(zms_ftl->maptbl[lpn])) {
+		NVMEV_ERROR("current lpn %lld not reserved, prev ppa: ch %d lun %d pl %d blk %d pg %d\n", lpn, ppa.zms.ch, ppa.zms.lun, ppa.zms.pl, ppa.zms.blk, ppa.zms.pg);
 		return FAILURE;
+	}
 
 	int is_normal = (loc == LOC_NORMAL);
 	if (get_page_location(zms_ftl, &ppa) != (is_normal ? LOC_NORMAL : LOC_PSLC)) {
@@ -1541,7 +1555,8 @@ static int update_mapping_if_reserved(struct zms_ftl *zms_ftl, uint64_t lpn, int
 
 static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int loc, int io_type)
 {
-	if (update_mapping_if_reserved(zms_ftl, lpn, loc, io_type) != SUCCESS) {
+	int granularity = get_mapping_granularity(zms_ftl, loc, io_type);
+	if (granularity == PAGE_MAP || update_mapping_if_reserved(zms_ftl, lpn, loc, io_type) != SUCCESS) {
 		if ((loc == LOC_NORMAL && zms_ftl->device_full) ||
 			(loc == LOC_PSLC && zms_ftl->pslc_full)) {
 			NVMEV_ERROR("%s no free page! io_type %d dest location %d lpn %lld\n", __func__,
@@ -1549,7 +1564,6 @@ static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int
 			return;
 		}
 
-		int granularity = get_mapping_granularity(zms_ftl, loc);
 		int pgs = get_pages_per_granularity(zms_ftl, granularity);
 		uint64_t slpn = get_granularity_start_lpn(zms_ftl, lpn, granularity);
 		uint64_t pgs_per_line = loc == LOC_PSLC ? zms_ftl->zp.pslc_pgs_per_line : zms_ftl->zp.pgs_per_line;
@@ -1562,6 +1576,13 @@ static void update_or_reserve_mapping(struct zms_ftl *zms_ftl, uint64_t lpn, int
 		}
 
 		for (int i = 0; i < pgs; i++) {
+			struct ppa old = get_maptbl_ent(zms_ftl, slpn + i);
+
+			if (mapped_ppa(&old)) {
+				NVMEV_ERROR("reserve overwrites mapped lpn %llu loc %d io_type %d old ppa ch %d lun %d pl %d blk %d pg %d\n",
+							slpn + i, loc, io_type, old.zms.ch, old.zms.lun, old.zms.pl,
+							old.zms.blk, old.zms.pg);
+			}
 			zms_ftl->maptbl[slpn + i] = RSV_PPA;
 		}
 
@@ -2106,29 +2127,34 @@ static void erase_line(struct zms_ftl *zms_ftl, struct zms_line *line, int io_ty
 	int end_lun = start_lun + rows_per_line;
 
 	if (line->parent_id == -1) {
-		int ch, lun;
+		int ch, lun, pl;
+
 		for (ch = 0; ch < spp->nchs; ch++) {
 			for (lun = start_lun; lun < end_lun; lun++) {
-				e_ppa.zms.ch = ch;
-				e_ppa.zms.lun = lun;
-
 				if (lun >= spp->luns_per_ch) {
-					NVMEV_ERROR("Erase lun out of bound! lun %d max %d\n", lun, spp->luns_per_ch);
+					NVMEV_ERROR("Erase lun out of bound! lun %d max %d\n",
+								lun, spp->luns_per_ch);
 					continue;
 				}
-				mark_block_free(zms_ftl, &e_ppa);
 
-				if (io_type != GC_IO || zms_ftl->zp.enable_gc_delay) {
-					struct nand_cmd ecmd = {
-						.type = io_type,
-						.cmd = NAND_ERASE,
-						.stime = 0,
-						.interleave_pci_dma = false,
-						.ppa = e_ppa,
-					};
-					NVMEV_CONZONE_PRINT_TIME("nsid [%d] submit nand cmd in %s 1\n",
-											 zms_ftl->zp.ns->id, __func__);
-					submit_nand_cmd(zms_ftl->ssd, &ecmd);
+				for (pl = 0; pl < spp->pls_per_lun; pl++) {
+					e_ppa.zms.ch = ch;
+					e_ppa.zms.lun = lun;
+					e_ppa.zms.pl = pl;
+
+					mark_block_free(zms_ftl, &e_ppa);
+
+					if (io_type != GC_IO || zms_ftl->zp.enable_gc_delay) {
+						struct nand_cmd ecmd = {
+							.type = io_type,
+							.cmd = NAND_ERASE,
+							.stime = 0,
+							.interleave_pci_dma = false,
+							.ppa = e_ppa,
+						};
+
+						submit_nand_cmd(zms_ftl->ssd, &ecmd);
+					}
 				}
 			}
 		}
@@ -2265,11 +2291,11 @@ static struct zms_line *do_migrate_simple(struct zms_ftl *zms_ftl, int io_type)
 									   ippa.zms.ch, ippa.zms.lun, ippa.zms.pl, ippa.zms.blk,
 									   ippa.zms.pg);
 						} else {
-							NVMEV_INFO("lpn %lld -> UNMAPPED PPA\n", idx);
+							NVMEV_INFO("migrate[s] lpn %lld -> UNMAPPED PPA\n", idx);
 						}
 					}
 				}
-				NVMEV_INFO("lpn %lld -> ch %d lun %d pl %d blk %d pg %d\n", lpn, ppa.zms.ch,
+				NVMEV_INFO("migrate[s] lpn %lld -> ch %d lun %d pl %d blk %d pg %d\n", lpn, ppa.zms.ch,
 						   ppa.zms.lun, ppa.zms.pl, ppa.zms.blk, ppa.zms.pg);
 				// NVMEV_ASSERT(0);
 			}
@@ -3345,7 +3371,10 @@ void zone_reset(struct zms_ftl *zms_ftl, uint64_t zid, int sqid)
 				__zms_wb_hit(zms_ftl, write_buffer, lpn)) {
 				bufs_to_release = write_buffer->flush_data;
 			}
-			break;
+			// clear reserve mapping
+			if (zms_ftl->maptbl[lpn].ppa != UNMAPPED_PPA) {
+				zms_ftl->maptbl[lpn].ppa = UNMAPPED_PPA;
+			}
 		}
 	}
 
