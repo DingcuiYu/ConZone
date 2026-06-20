@@ -60,38 +60,11 @@ static int get_line_location(struct zms_ftl *zms_ftl, struct zms_line *line)
 	}
 }
 
-// static struct zms_line *get_line(struct zms_ftl *zms_ftl, struct ppa *ppa)
-// {
-// 	struct ssdparams *spp = &zms_ftl->ssd->sp;
-// 	struct zms_line_mgmt *lm = &zms_ftl->lm;
-// 	int lmid;
-// 	struct zms_line *line;
-// 	if (get_namespace_type(zms_ftl->zp.ns_type) == META_NAMESPACE) {
-// 		lmid = ppa->zms.blk;
-// 	} else {
-// 		lmid = ppa->zms.blk - (spp->meta_pslc_blks + spp->meta_normal_blks);
-// 	}
-// 	if (lmid >= lm->tt_lines) {
-// 		NVMEV_ERROR("lmid >= lm->tt_line! ppa blk %d meta pslc blk %lld meta normal blk %lld lmid %d tt lines %u\n",
-// 					ppa->zms.blk, spp->meta_pslc_blks, spp->meta_normal_blks, lmid, lm->tt_lines);
-// 		NVMEV_ASSERT(0);
-// 	}
-
-// 	line = &lm->lines[lmid];
-// 	if (lm->lines[lmid].sub_lines) {
-// 		int sublmid = ppa->zms.lun * (spp->nchs * spp->pls_per_lun) +
-// 					  ppa->zms.ch * spp->pls_per_lun + ppa->zms.pl;
-// 		if (sublmid >= spp->blks_per_line) {
-// 			NVMEV_ERROR(
-// 				"sublmid >= spp->blks_per_line! ppa (ch %d lun %d) sublm id %d blks per line "
-// 				"%ld \n",
-// 				ppa->zms.ch, ppa->zms.lun, sublmid, spp->blks_per_line);
-// 			NVMEV_ASSERT(0);
-// 		}
-// 		line = &lm->lines[lmid].sub_lines[sublmid];
-// 	}
-// 	return line;
-// }
+static inline bool line_reclaimable_without_copy(struct zms_line *line)
+{
+	return line->vpc == 0 &&
+		   line->ipc + line->rpc == line->pgs_per_line;
+}
 
 static struct zms_line *get_line(struct zms_ftl *zms_ftl, struct ppa *ppa)
 {
@@ -2396,7 +2369,7 @@ static void try_migrate(struct zms_ftl *zms_ftl)
 			if (lm->lines[i].sub_lines) {
 				for (int j = 0; j < zms_ftl->ssd->sp.blks_per_line; j++) {
 					if (get_line_location(zms_ftl, &lm->lines[i].sub_lines[j]) == LOC_PSLC &&
-						lm->lines[i].sub_lines[j].ipc == lm->lines[i].sub_lines[j].pgs_per_line) {
+						line_reclaimable_without_copy(&lm->lines[i].sub_lines[j])) {
 						NVMEV_CONZONE_GC_DEBUG(
 							"try direct earse line %d parent id %d pgs per line %ld\n", j, i,
 							lm->lines[i].pgs_per_line);
@@ -2407,7 +2380,7 @@ static void try_migrate(struct zms_ftl *zms_ftl)
 				}
 			} else {
 				if (get_line_location(zms_ftl, &lm->lines[i]) == LOC_PSLC &&
-					lm->lines[i].ipc == lm->lines[i].pgs_per_line) {
+					line_reclaimable_without_copy(&lm->lines[i].sub_lines[j])) {
 					NVMEV_CONZONE_GC_DEBUG("try direct earse line %d pgs per line %ld\n", i,
 										   lm->lines[i].pgs_per_line);
 					erase_line(zms_ftl, &lm->lines[i], eio_type);
