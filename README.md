@@ -53,6 +53,15 @@ sudo reboot
 ```bash
 git clone git@github.com:DingcuiYu/ConZone.git
 ```
+### Build MKFS TOOL
+```bash
+cd f2fs-tools-1.14.0
+./autogen.sh
+./configure --prefix=$(pwd)/build
+make
+make install
+cd ..
+```
 
 ### Compile
 ```bash
